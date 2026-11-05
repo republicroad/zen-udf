@@ -1,0 +1,1147 @@
+{
+  "id": "2a77f3a8-9bfe-4fde-9f1c-080a7a1f3876",
+  "metadata": {
+    "version": "1.0.0",
+    "author": "wanghao@geetest.com",
+    "description": "v1",
+    "tags": ["login", "risk control"]
+  },
+  "contentType": "application/vnd.gorules.decision",
+  "nodes": [
+    {
+      "type": "inputNode",
+      "content": {
+        "schemaUI": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"ip\": {\n      \"type\": \"string\",\n      \"description\": \"ip地址\",\n      \"x-order\": 0\n    },\n    \"phone\": {\n      \"type\": \"string\",\n      \"description\": \"手机号\",\n      \"x-order\": 1\n    },\n    \"email\": {\n      \"type\": \"string\",\n      \"description\": \"邮箱\",\n      \"x-order\": 2\n    },\n    \"device_id\": {\n      \"type\": \"string\",\n      \"description\": \"设备\",\n      \"x-order\": 3\n    }\n  },\n  \"examples\": [\n    {\n      \"ip\": \"104.167.26.174\",\n      \"phone\": \"17707556321\",\n      \"email\": \"xxxx@gmail.com\"\n    },\n    {\n      \"ip\": \"104.167.26.174\",\n      \"phone\": \"17707551234\",\n      \"email\": \"xxxx@gmail.com\"\n    }\n  ]\n}",
+        "expressions": [],
+        "inputField": null,
+        "outputPath": null
+      },
+      "id": "8cbd203f-b5cd-4c28-a2a9-6f57fe8e199a",
+      "name": "myRequest",
+      "position": {
+        "x": -1190,
+        "y": 105
+      }
+    },
+    {
+      "type": "outputNode",
+      "content": {
+        "schema": ""
+      },
+      "id": "cca3a807-62d1-4f1c-8912-0c225ad5a972",
+      "name": "myResponse",
+      "position": {
+        "x": 800,
+        "y": 270
+      }
+    },
+    {
+      "type": "customNode",
+      "content": {
+        "kind": "UDF",
+        "config": {
+          "version": "v3",
+          "meta": {
+            "user": "fb417c920bb142eabd6016a3520663b3",
+            "proj": "proj_f0727c05276f4055"
+          },
+          "expressions": [
+            {
+              "id": "9ba57ee2-c795-4a8b-8d35-f1790bf24f79",
+              "key": "ip_white_list",
+              "value": "custom_list_query;;\"熊猫ip白名单\";;ip",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "custom_list_query_result",
+                "properties": {
+                  "result": {
+                    "title": "Result",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["result"]
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "id": "9ba57ee2-c795-4a8b-8d35-f1790bf24f79",
+              "key": "ip_white_list",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "custom_list_query",
+                "arglength": 2,
+                "arguments": [
+                  {
+                    "arg_name": "list_name",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "名单名称"
+                  },
+                  {
+                    "arg_name": "value",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "名单数据"
+                  }
+                ],
+                "return_values": {
+                  "value": "",
+                  "tag": "",
+                  "start_time": "",
+                  "end_time": "",
+                  "result": false
+                },
+                "comments": "custom list query"
+              },
+              "arg_exprs": {
+                "list_name": "\"熊猫ip白名单\"",
+                "value": "ip"
+              }
+            }
+          ],
+          "expr_asts": [
+            {
+              "id": "9ba57ee2-c795-4a8b-8d35-f1790bf24f79",
+              "key": "ip_white_list",
+              "value": ["custom_list_query", "\"熊猫ip白名单\"", "ip"]
+            }
+          ],
+          "passThrough": true,
+          "inputField": null,
+          "outputPath": null,
+          "executionMode": "single"
+        }
+      },
+      "id": "91bb5aca-4ae4-4f8e-aa59-c0d5f250af95",
+      "name": "白名单查询",
+      "position": {
+        "x": -1010,
+        "y": -10
+      }
+    },
+    {
+      "type": "customNode",
+      "content": {
+        "kind": "UDF",
+        "config": {
+          "version": "v3",
+          "meta": {
+            "user": "fb417c920bb142eabd6016a3520663b3",
+            "proj": "proj_f0727c05276f4055"
+          },
+          "expressions": [
+            {
+              "id": "ed82fc3c-826c-442d-a1ff-e8258c36ed86",
+              "key": "ip_info",
+              "value": "ip_location;;ip",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "ip_location_result",
+                "properties": {
+                  "country": {
+                    "title": "Country",
+                    "type": "string"
+                  },
+                  "province": {
+                    "title": "Province",
+                    "type": "string"
+                  },
+                  "city": {
+                    "title": "City",
+                    "type": "string"
+                  },
+                  "isp": {
+                    "title": "Isp",
+                    "type": "string"
+                  },
+                  "ip": {
+                    "title": "Ip",
+                    "type": "string"
+                  }
+                },
+                "required": ["country", "province", "city", "isp", "ip"]
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "id": "ed82fc3c-826c-442d-a1ff-e8258c36ed86",
+              "key": "ip_info",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "ip_location",
+                "arglength": 1,
+                "arguments": [
+                  {
+                    "arg_name": "ip",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "ip"
+                  }
+                ],
+                "return_values": {
+                  "country": "",
+                  "province": "",
+                  "city": "",
+                  "ip": "",
+                  "isp": ""
+                },
+                "comments": "Get IP location"
+              },
+              "arg_exprs": {
+                "ip": "ip"
+              }
+            }
+          ],
+          "expr_asts": [
+            {
+              "id": "ed82fc3c-826c-442d-a1ff-e8258c36ed86",
+              "key": "ip_info",
+              "value": ["ip_location", "ip"]
+            }
+          ],
+          "passThrough": true,
+          "inputField": null,
+          "outputPath": null,
+          "executionMode": "single"
+        }
+      },
+      "id": "25d4bcf8-80cc-43d2-a4bb-d41d124d0e95",
+      "name": "ip地理解析",
+      "position": {
+        "x": 135,
+        "y": 10
+      }
+    },
+    {
+      "type": "switchNode",
+      "content": {
+        "hitPolicy": "first",
+        "statements": [
+          {
+            "id": "8502be4e-3cc3-4c4d-8aee-1561e6d5b1ce",
+            "condition": "ip_white_list.result == false",
+            "isDefault": false
+          },
+          {
+            "id": "8b3ddc71-7daa-4b3f-b1ab-1725ceb440ad",
+            "condition": "ip_white_list.result == true",
+            "isDefault": false
+          }
+        ]
+      },
+      "id": "93927b13-f34d-419a-8825-5f28ed8b3762",
+      "name": "白名单判断",
+      "position": {
+        "x": -840,
+        "y": 95
+      }
+    },
+    {
+      "type": "decisionTableNode",
+      "content": {
+        "hitPolicy": "first",
+        "rules": [
+          {
+            "_id": "3e286411-9e80-4d80-8c35-64513239204c",
+            "bc16ae7c-b033-48d7-81df-9d57967f701c": "",
+            "5925c910-334e-403b-bb14-8fed5eb9a835": "'pass'",
+            "4ac305bd-f6a1-44ef-a2a9-accb473b42a5": "'ip白名单,通过'"
+          }
+        ],
+        "inputs": [
+          {
+            "id": "bc16ae7c-b033-48d7-81df-9d57967f701c",
+            "name": "Input"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "5925c910-334e-403b-bb14-8fed5eb9a835",
+            "name": "result",
+            "field": "result"
+          },
+          {
+            "id": "4ac305bd-f6a1-44ef-a2a9-accb473b42a5",
+            "name": "reason",
+            "field": "reason"
+          }
+        ],
+        "passThrough": false,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      },
+      "id": "17e98f09-3b2e-4fad-89ee-6e8b8bc69a70",
+      "name": "白名单结果输出",
+      "position": {
+        "x": -835,
+        "y": 305
+      }
+    },
+    {
+      "type": "customNode",
+      "content": {
+        "kind": "UDF",
+        "config": {
+          "version": "v3",
+          "meta": {
+            "user": "fb417c920bb142eabd6016a3520663b3",
+            "proj": "proj_f0727c05276f4055"
+          },
+          "expressions": [
+            {
+              "id": "362c481d-0a01-4ccf-b64d-3c6fe652cde7",
+              "key": "ip_black_list",
+              "value": "custom_list_query;;\"熊猫ip黑名单\";;ip",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "custom_list_query_result",
+                "properties": {
+                  "result": {
+                    "title": "Result",
+                    "type": "boolean"
+                  }
+                },
+                "required": ["result"]
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "id": "362c481d-0a01-4ccf-b64d-3c6fe652cde7",
+              "key": "ip_black_list",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "custom_list_query",
+                "arglength": 2,
+                "arguments": [
+                  {
+                    "arg_name": "list_name",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "名单名称"
+                  },
+                  {
+                    "arg_name": "value",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "名单数据"
+                  }
+                ],
+                "return_values": {
+                  "value": "",
+                  "tag": "",
+                  "start_time": "",
+                  "end_time": "",
+                  "result": false
+                },
+                "comments": "custom list query"
+              },
+              "arg_exprs": {
+                "list_name": "\"熊猫ip黑名单\"",
+                "value": "ip"
+              }
+            }
+          ],
+          "expr_asts": [
+            {
+              "id": "362c481d-0a01-4ccf-b64d-3c6fe652cde7",
+              "key": "ip_black_list",
+              "value": ["custom_list_query", "\"熊猫ip黑名单\"", "ip"]
+            }
+          ],
+          "passThrough": true,
+          "inputField": null,
+          "outputPath": null,
+          "executionMode": "single"
+        }
+      },
+      "id": "cab7b740-33f8-4c3d-98af-c55c1f0bfc53",
+      "name": "黑名单查询",
+      "position": {
+        "x": -665,
+        "y": -30
+      }
+    },
+    {
+      "type": "switchNode",
+      "content": {
+        "hitPolicy": "first",
+        "statements": [
+          {
+            "id": "3b45dfc3-e6cc-4dae-b15c-232955bb3b36",
+            "condition": "ip_black_list.result == false",
+            "isDefault": false
+          },
+          {
+            "id": "d2c2fc03-e102-4331-b44b-67943e21498d",
+            "condition": "ip_black_list.result == true",
+            "isDefault": false
+          }
+        ]
+      },
+      "id": "21eebf61-cd90-4980-a72b-bd70b0add372",
+      "name": "黑名单判断",
+      "position": {
+        "x": -520,
+        "y": 95
+      }
+    },
+    {
+      "type": "outputNode",
+      "content": {
+        "schema": ""
+      },
+      "id": "8e6604c2-8da4-49d0-a79f-961d9d06051c",
+      "name": "myResponse",
+      "position": {
+        "x": -835,
+        "y": 415
+      }
+    },
+    {
+      "type": "decisionTableNode",
+      "content": {
+        "hitPolicy": "first",
+        "rules": [
+          {
+            "_id": "5985f7e8-eee0-4b51-8080-876b9bf88e6b",
+            "ec36adea-2e3b-48ee-a7dc-d7086d0f9bec": "",
+            "ad0bf44d-f941-45ea-beb7-04ede961784c": "'refuse'",
+            "b3065d73-40fb-44d5-9777-0ebcef2f2bc1": "'ip黑名单,拒绝'"
+          }
+        ],
+        "inputs": [
+          {
+            "id": "ec36adea-2e3b-48ee-a7dc-d7086d0f9bec",
+            "name": "Input"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "ad0bf44d-f941-45ea-beb7-04ede961784c",
+            "name": "result",
+            "field": "result"
+          },
+          {
+            "id": "b3065d73-40fb-44d5-9777-0ebcef2f2bc1",
+            "name": "reason",
+            "field": "reason"
+          }
+        ],
+        "passThrough": false,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      },
+      "id": "47623ae2-b63b-411f-b0d0-8682eabca620",
+      "name": "黑名单结果输出",
+      "position": {
+        "x": -520,
+        "y": 305
+      }
+    },
+    {
+      "type": "outputNode",
+      "content": {
+        "schema": ""
+      },
+      "id": "ea01bcbb-fafd-4d9f-9750-eccbc5f910be",
+      "name": "myResponse",
+      "position": {
+        "x": -520,
+        "y": 420
+      }
+    },
+    {
+      "type": "decisionTableNode",
+      "content": {
+        "hitPolicy": "first",
+        "rules": [
+          {
+            "_id": "f48b02f7-5d26-4488-988e-3d4e422ab401",
+            "_description": "'ip地理信息来自于XX，拒绝'",
+            "72c33883-d932-42b9-ac72-77f238c3118c": "contains(ip_info.country, 'XX')",
+            "0374e7ab-2bb8-4f20-9a41-6403a470c88c": "'refuse'",
+            "6c751f8c-4bb2-4f39-b24d-a9c380537e01": "'ip地理信息来自于XX，拒绝'"
+          },
+          {
+            "_id": "175b62e2-741b-4eb4-a8d6-b7d2b58eabac",
+            "_description": "''",
+            "72c33883-d932-42b9-ac72-77f238c3118c": "",
+            "0374e7ab-2bb8-4f20-9a41-6403a470c88c": "'pass'",
+            "6c751f8c-4bb2-4f39-b24d-a9c380537e01": "''"
+          }
+        ],
+        "inputs": [
+          {
+            "id": "72c33883-d932-42b9-ac72-77f238c3118c",
+            "name": "Input"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "0374e7ab-2bb8-4f20-9a41-6403a470c88c",
+            "name": "result",
+            "field": "result"
+          },
+          {
+            "id": "6c751f8c-4bb2-4f39-b24d-a9c380537e01",
+            "name": "reason",
+            "field": "reason"
+          }
+        ],
+        "passThrough": true,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      },
+      "id": "0b2677f8-bbaf-42c6-b1ea-ce716e69d165",
+      "name": "ip地理判断",
+      "position": {
+        "x": 135,
+        "y": 110
+      }
+    },
+    {
+      "type": "switchNode",
+      "content": {
+        "hitPolicy": "first",
+        "statements": [
+          {
+            "id": "6dbebebf-bce4-4a30-bb45-766e3da6b688",
+            "condition": "result == 'pass'",
+            "isDefault": false
+          },
+          {
+            "id": "cabd523c-99dd-42a6-868b-9e3aa777adc7",
+            "condition": "result == 'refuse'",
+            "isDefault": false
+          },
+          {
+            "id": "a7535d1d-0447-4c47-951a-da5ac380e321",
+            "condition": "",
+            "isDefault": false
+          }
+        ]
+      },
+      "id": "81b6171a-f73f-4016-981b-cb8d079b2488",
+      "name": "ip地理结果处理",
+      "position": {
+        "x": 135,
+        "y": 220
+      }
+    },
+    {
+      "type": "outputNode",
+      "content": {
+        "schema": ""
+      },
+      "id": "0531a542-a499-41c1-827a-503aba3919ff",
+      "name": "myResponse",
+      "position": {
+        "x": 505,
+        "y": 495
+      }
+    },
+    {
+      "type": "decisionTableNode",
+      "content": {
+        "hitPolicy": "first",
+        "rules": [
+          {
+            "_id": "936f4d95-7207-4bfb-9843-1477046cbc30",
+            "_description": "'同一个ip最近1小时，请求量超过阈值5，拒绝'",
+            "5ed2619b-4457-4989-906d-508ede3b9755": "ip_1h.counter > 5",
+            "f6834de3-c86f-4e74-9719-abe399ce1585": "'refuse'",
+            "80be09a8-4f41-4cc3-ad7e-b841e9a101b4": "'同一个ip最近1小时，请求量超过阈值5，拒绝'"
+          },
+          {
+            "_id": "d6013dbd-a5b5-4605-9514-960cc063d397",
+            "_description": "'同一个手机号最近1小时，请求量超过阈值5，拒绝'",
+            "5ed2619b-4457-4989-906d-508ede3b9755": "phone_1h.counter > 5 ",
+            "f6834de3-c86f-4e74-9719-abe399ce1585": "'refuse'",
+            "80be09a8-4f41-4cc3-ad7e-b841e9a101b4": "'同一个手机号最近1小时，请求量超过阈值5，拒绝'"
+          },
+          {
+            "_id": "e9782e98-f2e8-445e-b029-7423f61bd8a4",
+            "_description": "'单个ip下最近1小时，手机号去重数超过阈值3，拒绝'",
+            "5ed2619b-4457-4989-906d-508ede3b9755": "ip_phone_1h.uv > 3",
+            "f6834de3-c86f-4e74-9719-abe399ce1585": "'refuse'",
+            "80be09a8-4f41-4cc3-ad7e-b841e9a101b4": "'单个ip下最近1小时，手机号去重数超过阈值3，拒绝'"
+          },
+          {
+            "_id": "a3cf23eb-2c40-4748-965f-999eb85b7aa4",
+            "_description": "'单个ip与上一次请求间隔时间小于30秒'",
+            "5ed2619b-4457-4989-906d-508ede3b9755": "ip_phone_1h.gidle in [1 .. 30000]",
+            "f6834de3-c86f-4e74-9719-abe399ce1585": "'refuse'",
+            "80be09a8-4f41-4cc3-ad7e-b841e9a101b4": "'单个ip与上一次请求间隔时间小于30秒'"
+          },
+          {
+            "_id": "72aa86c1-03e3-4254-97c8-6511f77e27f8",
+            "_description": "'最近一小时内出现的ip个数超过了100，拒绝'",
+            "5ed2619b-4457-4989-906d-508ede3b9755": "ip_distinct_1h.uv > 100",
+            "f6834de3-c86f-4e74-9719-abe399ce1585": "'refuse'",
+            "80be09a8-4f41-4cc3-ad7e-b841e9a101b4": "'最近一小时内出现的ip个数超过了100，拒绝'"
+          },
+          {
+            "_id": "872a728c-0145-43ce-b339-8785693c2538",
+            "5ed2619b-4457-4989-906d-508ede3b9755": "",
+            "f6834de3-c86f-4e74-9719-abe399ce1585": "'pass'",
+            "80be09a8-4f41-4cc3-ad7e-b841e9a101b4": "'通过校验'",
+            "_description": "'通过校验'"
+          }
+        ],
+        "inputs": [
+          {
+            "id": "5ed2619b-4457-4989-906d-508ede3b9755",
+            "name": "Input"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "f6834de3-c86f-4e74-9719-abe399ce1585",
+            "name": "result",
+            "field": "result"
+          },
+          {
+            "id": "80be09a8-4f41-4cc3-ad7e-b841e9a101b4",
+            "name": "reason",
+            "field": "reason"
+          }
+        ],
+        "passThrough": false,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      },
+      "id": "54865b91-b115-4582-9e3f-9bb1d4af4008",
+      "name": "决策表",
+      "position": {
+        "x": 500,
+        "y": 250
+      }
+    },
+    {
+      "type": "customNode",
+      "content": {
+        "kind": "UDF",
+        "config": {
+          "version": "v3",
+          "meta": {
+            "user": "fb417c920bb142eabd6016a3520663b3",
+            "proj": "proj_f0727c05276f4055"
+          },
+          "expressions": [
+            {
+              "id": "5ddcf535-7f14-4a5f-ac8f-b1d2cad3a502",
+              "key": "ip_1h",
+              "value": "rate_1h;;ip",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "RateCommonResult",
+                "properties": {
+                  "counter": {
+                    "default": 0,
+                    "title": "Counter",
+                    "type": "integer"
+                  },
+                  "v": {
+                    "default": "",
+                    "title": "V",
+                    "type": "string"
+                  },
+                  "idle": {
+                    "default": 0,
+                    "title": "Idle",
+                    "type": "integer"
+                  },
+                  "timestamp": {
+                    "default": "",
+                    "title": "Timestamp",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "id": "79b282ed-1a72-44cf-a568-853c8ebd6957",
+              "key": "phone_1h",
+              "value": "rate_1h;;phone",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "RateCommonResult",
+                "properties": {
+                  "counter": {
+                    "default": 0,
+                    "title": "Counter",
+                    "type": "integer"
+                  },
+                  "v": {
+                    "default": "",
+                    "title": "V",
+                    "type": "string"
+                  },
+                  "idle": {
+                    "default": 0,
+                    "title": "Idle",
+                    "type": "integer"
+                  },
+                  "timestamp": {
+                    "default": "",
+                    "title": "Timestamp",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "id": "98fedbe8-79d2-4ff6-915c-e000baf90bde",
+              "key": "ip_phone_1h",
+              "value": "group_distinct_1h;;ip;;phone",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "GroupDistinctCommonResult",
+                "properties": {
+                  "idle": {
+                    "default": 0,
+                    "title": "Idle",
+                    "type": "integer"
+                  },
+                  "pv": {
+                    "default": 0,
+                    "title": "Pv",
+                    "type": "integer"
+                  },
+                  "uv": {
+                    "default": 0,
+                    "title": "Uv",
+                    "type": "integer"
+                  },
+                  "gidle": {
+                    "default": 0,
+                    "title": "Gidle",
+                    "type": "integer"
+                  },
+                  "vidle": {
+                    "default": 0,
+                    "title": "Vidle",
+                    "type": "integer"
+                  },
+                  "group": {
+                    "default": "",
+                    "title": "Group",
+                    "type": "string"
+                  },
+                  "v": {
+                    "default": "",
+                    "title": "V",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "default": "",
+                    "title": "Timestamp",
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "id": "3544b61a-6720-452f-b81b-6d7fcdf001a9",
+              "key": "ip_distinct_1h",
+              "value": "group_distinct_1h;;'login';;ip",
+              "type": "function",
+              "returnSchema": {
+                "type": "object",
+                "title": "GroupDistinctCommonResult",
+                "properties": {
+                  "idle": {
+                    "default": 0,
+                    "title": "Idle",
+                    "type": "integer"
+                  },
+                  "pv": {
+                    "default": 0,
+                    "title": "Pv",
+                    "type": "integer"
+                  },
+                  "uv": {
+                    "default": 0,
+                    "title": "Uv",
+                    "type": "integer"
+                  },
+                  "gidle": {
+                    "default": 0,
+                    "title": "Gidle",
+                    "type": "integer"
+                  },
+                  "vidle": {
+                    "default": 0,
+                    "title": "Vidle",
+                    "type": "integer"
+                  },
+                  "group": {
+                    "default": "",
+                    "title": "Group",
+                    "type": "string"
+                  },
+                  "v": {
+                    "default": "",
+                    "title": "V",
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "default": "",
+                    "title": "Timestamp",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ],
+          "inputs": [
+            {
+              "id": "5ddcf535-7f14-4a5f-ac8f-b1d2cad3a502",
+              "key": "ip_1h",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "rate_1h",
+                "arglength": 1,
+                "arguments": [
+                  {
+                    "arg_name": "mykey",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "统计字段或者表达式"
+                  }
+                ],
+                "return_values": {
+                  "v": "",
+                  "counter": "",
+                  "idle": "",
+                  "timestamp": ""
+                },
+                "comments": "最近 1hour 的统计函数"
+              },
+              "arg_exprs": {
+                "mykey": "ip"
+              }
+            },
+            {
+              "id": "79b282ed-1a72-44cf-a568-853c8ebd6957",
+              "key": "phone_1h",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "rate_1h",
+                "arglength": 1,
+                "arguments": [
+                  {
+                    "arg_name": "mykey",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "统计字段或者表达式"
+                  }
+                ],
+                "return_values": {
+                  "v": "",
+                  "counter": "",
+                  "idle": "",
+                  "timestamp": ""
+                },
+                "comments": "最近 1hour 的统计函数"
+              },
+              "arg_exprs": {
+                "mykey": "phone_num"
+              }
+            },
+            {
+              "id": "98fedbe8-79d2-4ff6-915c-e000baf90bde",
+              "key": "ip_phone_1h",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "group_distinct_1h",
+                "arglength": 2,
+                "arguments": [
+                  {
+                    "arg_name": "group",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "统计分组键表达式"
+                  },
+                  {
+                    "arg_name": "distinct",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "统计分组键下的去重字段"
+                  }
+                ],
+                "return_values": {
+                  "group": "",
+                  "v": "",
+                  "pv": "0",
+                  "uv": "0",
+                  "gpv": "0",
+                  "gidle": "",
+                  "vidle": "",
+                  "timestamp": ""
+                },
+                "comments": "最近1hour的分组去重统计函数"
+              },
+              "arg_exprs": {
+                "group": "ip",
+                "distinct": "phone_num"
+              }
+            },
+            {
+              "id": "3544b61a-6720-452f-b81b-6d7fcdf001a9",
+              "key": "ip_distinct_1h",
+              "value": "",
+              "type": "function",
+              "funcmeta": {
+                "name": "group_distinct_1h",
+                "arglength": 2,
+                "arguments": [
+                  {
+                    "arg_name": "group",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "统计分组键表达式"
+                  },
+                  {
+                    "arg_name": "distinct",
+                    "arg_type": "string",
+                    "defaults": "",
+                    "comments": "统计分组键下的去重字段"
+                  }
+                ],
+                "return_values": {
+                  "group": "",
+                  "v": "",
+                  "pv": "0",
+                  "uv": "0",
+                  "gpv": "0",
+                  "gidle": "",
+                  "vidle": "",
+                  "timestamp": ""
+                },
+                "comments": "最近1hour的分组去重统计函数"
+              },
+              "arg_exprs": {
+                "group": "'message'",
+                "distinct": "ip"
+              }
+            }
+          ],
+          "expr_asts": [
+            {
+              "id": "5ddcf535-7f14-4a5f-ac8f-b1d2cad3a502",
+              "key": "ip_1h",
+              "value": ["rate_1h", "ip"]
+            },
+            {
+              "id": "79b282ed-1a72-44cf-a568-853c8ebd6957",
+              "key": "phone_1h",
+              "value": ["rate_1h", "phone"]
+            },
+            {
+              "id": "98fedbe8-79d2-4ff6-915c-e000baf90bde",
+              "key": "ip_phone_1h",
+              "value": ["group_distinct_1h", "ip", "phone"]
+            },
+            {
+              "id": "3544b61a-6720-452f-b81b-6d7fcdf001a9",
+              "key": "ip_distinct_1h",
+              "value": ["group_distinct_1h", "'login'", "ip"]
+            }
+          ],
+          "passThrough": true,
+          "inputField": null,
+          "outputPath": null,
+          "executionMode": "single"
+        }
+      },
+      "id": "da9cff71-4329-4c8d-8ba8-df6d9cc757da",
+      "name": "指标计算",
+      "position": {
+        "x": 490,
+        "y": 135
+      }
+    },
+    {
+      "type": "switchNode",
+      "content": {
+        "hitPolicy": "first",
+        "statements": [
+          {
+            "id": "67c4a984-704f-41c2-92c0-7adfbeaa7dac",
+            "condition": "result == 'pass'",
+            "isDefault": false
+          },
+          {
+            "id": "9e96c744-01a9-4bfa-b8db-d952fa0ac106",
+            "condition": "result == 'refuse'",
+            "isDefault": false
+          }
+        ]
+      },
+      "id": "082c4baf-09fc-4e1a-8bcd-a6e8e3b095c9",
+      "name": "手机号区号判断",
+      "position": {
+        "x": -190,
+        "y": 10
+      }
+    },
+    {
+      "type": "outputNode",
+      "content": {
+        "schema": ""
+      },
+      "id": "4013985d-8abb-47e4-b1b0-e8ab8bda1ff1",
+      "name": "myResponse",
+      "position": {
+        "x": -175,
+        "y": 315
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e631bd91-277e-49c4-a0f0-9f01929c602c",
+      "sourceId": "8cbd203f-b5cd-4c28-a2a9-6f57fe8e199a",
+      "targetId": "91bb5aca-4ae4-4f8e-aa59-c0d5f250af95",
+      "type": "edge"
+    },
+    {
+      "id": "86dbb390-6071-441e-ae62-22b34d138f1d",
+      "sourceId": "91bb5aca-4ae4-4f8e-aa59-c0d5f250af95",
+      "targetId": "93927b13-f34d-419a-8825-5f28ed8b3762",
+      "type": "edge"
+    },
+    {
+      "id": "3dc284a1-b2d3-498e-aefb-64eec71059d1",
+      "sourceId": "93927b13-f34d-419a-8825-5f28ed8b3762",
+      "targetId": "17e98f09-3b2e-4fad-89ee-6e8b8bc69a70",
+      "sourceHandle": "8b3ddc71-7daa-4b3f-b1ab-1725ceb440ad",
+      "type": "edge"
+    },
+    {
+      "id": "680d2b7c-552f-4235-a6ac-264878e1382c",
+      "sourceId": "93927b13-f34d-419a-8825-5f28ed8b3762",
+      "targetId": "cab7b740-33f8-4c3d-98af-c55c1f0bfc53",
+      "sourceHandle": "8502be4e-3cc3-4c4d-8aee-1561e6d5b1ce",
+      "type": "edge"
+    },
+    {
+      "id": "5987e416-18b7-4102-b943-3d64a4ecb2a3",
+      "sourceId": "cab7b740-33f8-4c3d-98af-c55c1f0bfc53",
+      "targetId": "21eebf61-cd90-4980-a72b-bd70b0add372",
+      "type": "edge"
+    },
+    {
+      "id": "e3b0f4e2-975e-478e-bc98-b8acf969dc0d",
+      "sourceId": "17e98f09-3b2e-4fad-89ee-6e8b8bc69a70",
+      "targetId": "8e6604c2-8da4-49d0-a79f-961d9d06051c",
+      "type": "edge"
+    },
+    {
+      "id": "8dddecf3-d403-4a94-a7bc-877c2817e7ef",
+      "sourceId": "21eebf61-cd90-4980-a72b-bd70b0add372",
+      "targetId": "47623ae2-b63b-411f-b0d0-8682eabca620",
+      "sourceHandle": "d2c2fc03-e102-4331-b44b-67943e21498d",
+      "type": "edge"
+    },
+    {
+      "id": "c5dcdcea-b72a-4570-af1f-15b5686e51f2",
+      "sourceId": "47623ae2-b63b-411f-b0d0-8682eabca620",
+      "targetId": "ea01bcbb-fafd-4d9f-9750-eccbc5f910be",
+      "type": "edge"
+    },
+    {
+      "id": "486fefb1-3cf0-418d-9ffd-8a03b921e3c7",
+      "sourceId": "25d4bcf8-80cc-43d2-a4bb-d41d124d0e95",
+      "targetId": "0b2677f8-bbaf-42c6-b1ea-ce716e69d165",
+      "type": "edge"
+    },
+    {
+      "id": "d637c02b-150a-4d64-9aa5-76fc710c0b91",
+      "sourceId": "0b2677f8-bbaf-42c6-b1ea-ce716e69d165",
+      "targetId": "81b6171a-f73f-4016-981b-cb8d079b2488",
+      "type": "edge"
+    },
+    {
+      "id": "5b75355f-0250-4dec-846f-b1ffa9db1ae9",
+      "sourceId": "81b6171a-f73f-4016-981b-cb8d079b2488",
+      "targetId": "0531a542-a499-41c1-827a-503aba3919ff",
+      "sourceHandle": "cabd523c-99dd-42a6-868b-9e3aa777adc7",
+      "type": "edge"
+    },
+    {
+      "id": "df49dc79-7833-4f09-9514-9c34ae861d7b",
+      "sourceId": "54865b91-b115-4582-9e3f-9bb1d4af4008",
+      "targetId": "cca3a807-62d1-4f1c-8912-0c225ad5a972",
+      "type": "edge"
+    },
+    {
+      "id": "73927dd6-2c9e-4e76-852c-b8511b2ebdab",
+      "sourceId": "da9cff71-4329-4c8d-8ba8-df6d9cc757da",
+      "targetId": "54865b91-b115-4582-9e3f-9bb1d4af4008",
+      "type": "edge"
+    },
+    {
+      "id": "f118edfb-9619-43a0-b5c9-60d5d2152174",
+      "sourceId": "81b6171a-f73f-4016-981b-cb8d079b2488",
+      "targetId": "da9cff71-4329-4c8d-8ba8-df6d9cc757da",
+      "sourceHandle": "6dbebebf-bce4-4a30-bb45-766e3da6b688",
+      "type": "edge"
+    },
+    {
+      "id": "dd4378fb-7cdc-4802-9df1-88b8e85dbe07",
+      "sourceId": "81b6171a-f73f-4016-981b-cb8d079b2488",
+      "targetId": "0531a542-a499-41c1-827a-503aba3919ff",
+      "sourceHandle": "a7535d1d-0447-4c47-951a-da5ac380e321",
+      "type": "edge"
+    },
+    {
+      "id": "634d28b3-8aef-4072-925c-5afe92913f74",
+      "sourceId": "082c4baf-09fc-4e1a-8bcd-a6e8e3b095c9",
+      "targetId": "4013985d-8abb-47e4-b1b0-e8ab8bda1ff1",
+      "sourceHandle": "9e96c744-01a9-4bfa-b8db-d952fa0ac106",
+      "type": "edge"
+    },
+    {
+      "id": "2feae231-0c67-48c7-87bf-59cf118f14f1",
+      "sourceId": "21eebf61-cd90-4980-a72b-bd70b0add372",
+      "targetId": "25d4bcf8-80cc-43d2-a4bb-d41d124d0e95",
+      "sourceHandle": "3b45dfc3-e6cc-4dae-b15c-232955bb3b36",
+      "type": "edge"
+    },
+    {
+      "id": "1ae4f1db-2e2c-4d79-9d11-015d06576b87",
+      "sourceId": "082c4baf-09fc-4e1a-8bcd-a6e8e3b095c9",
+      "targetId": "25d4bcf8-80cc-43d2-a4bb-d41d124d0e95",
+      "sourceHandle": "67c4a984-704f-41c2-92c0-7adfbeaa7dac",
+      "type": "edge"
+    },
+    {
+      "id": "7a56186f-84b3-4126-acd8-64fb42aa36f0",
+      "sourceId": "21eebf61-cd90-4980-a72b-bd70b0add372",
+      "type": "edge",
+      "targetId": "082c4baf-09fc-4e1a-8bcd-a6e8e3b095c9",
+      "sourceHandle": "3b45dfc3-e6cc-4dae-b15c-232955bb3b36"
+    }
+  ]
+}

@@ -1,0 +1,192 @@
+{
+  "contract": "1.0.0",
+  "cases": [
+    {
+      "kind": "tool",
+      "tool": {
+        "namespace": "credit",
+        "name": "score",
+        "description": "信用评分：基础分 + 月收入加成",
+        "semantics": "query",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "base": {
+              "type": "number",
+              "description": "基础分",
+              "default": 600
+            },
+            "income": {
+              "type": "number",
+              "description": "月收入"
+            }
+          },
+          "required": ["income"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "number"
+            }
+          },
+          "required": ["score"]
+        }
+      },
+      "handler": "credit.score",
+      "actions": [
+        {
+          "action": "validate",
+          "input": {
+            "income": 8000
+          },
+          "expect": {
+            "errors": []
+          }
+        },
+        {
+          "action": "validate",
+          "input": {},
+          "expect": {
+            "errorsContain": "income is required (position 1)"
+          }
+        },
+        {
+          "action": "bind",
+          "args": [600, 8000],
+          "expect": {
+            "kwargs": {
+              "base": 600,
+              "income": 8000
+            }
+          }
+        },
+        {
+          "action": "call",
+          "input": {
+            "base": 600,
+            "income": 8000
+          },
+          "expect": {
+            "output": {
+              "score": 640
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "flat-removed",
+      "name": "credit_score",
+      "description": "1.0 行为锁：扁平 parameters 声明不再合成 parametersSchema——注册后无位置参数（B 案终裁）",
+      "flat": {
+        "name": "credit_score",
+        "parameters": {
+          "base": {
+            "type": "number",
+            "description": "基础分",
+            "default": 600
+          },
+          "income": {
+            "type": "number",
+            "description": "月收入"
+          }
+        }
+      },
+      "canonical": {
+        "name": "credit_score",
+        "parametersSchema": {
+          "type": "object",
+          "properties": {
+            "base": {
+              "type": "number",
+              "description": "基础分",
+              "default": 600
+            },
+            "income": {
+              "type": "number",
+              "description": "月收入"
+            }
+          },
+          "required": ["income"]
+        }
+      },
+      "expect": {
+        "positionalParams": 0,
+        "bindThrows": "v is required"
+      }
+    },
+    {
+      "kind": "registry",
+      "packs": [
+        {
+          "id": "acme.fraud",
+          "meta": {
+            "origin": "industry",
+            "version": "1.0.0",
+            "license": "proprietary"
+          },
+          "tools": [
+            {
+              "namespace": "acme.fraud",
+              "name": "velocity",
+              "description": "频控",
+              "semantics": "act",
+              "idempotent": true,
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  }
+                },
+                "required": ["key"]
+              }
+            }
+          ]
+        },
+        {
+          "id": "other",
+          "tools": [
+            {
+              "namespace": "other",
+              "name": "velocity",
+              "description": "撞名工具（未声明 overwrite）",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              }
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "registerErrorContains": "already registered by namespace 'acme.fraud'"
+      }
+    },
+    {
+      "kind": "registry",
+      "packs": [
+        {
+          "id": "zen.ext",
+          "tools": [
+            {
+              "namespace": "zen.ext",
+              "name": "t",
+              "description": "保留前缀",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": []
+              }
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "registerErrorContains": "reserved prefix"
+      }
+    }
+  ]
+}
