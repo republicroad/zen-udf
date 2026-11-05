@@ -4,7 +4,7 @@
 import { Type } from "@sinclair/typebox";
 
 import { getExecContext, getRateStore, globalUdfRegistry } from "@republicroad/zen-udf";
-import { RATE_STORE_MODULE_ID, pack, tool, type UdfTool } from "@republicroad/zen-udf";
+import { pack, tool, type UdfTool } from "@republicroad/zen-udf";
 
 const WINDOW_MS = 60 * 60 * 1000;
 
@@ -39,8 +39,6 @@ export const trailingCount1hTool = tool({
   }),
   run: (input) => {
     const entity = String(input?.entity ?? "");
-    const impl = getRateStore() as unknown as { instanceId?: string; __diagCount?: (e?: string) => number };
-    console.log("[trailing run] 核模块 ID:", RATE_STORE_MODULE_ID, "| store.instanceId:", impl.instanceId, "| ip-x 计数:", impl.__diagCount?.(entity));
     return Promise.resolve(getRateStore().rate(entity, WINDOW_MS, resolveAsOfMs()));
   },
 });

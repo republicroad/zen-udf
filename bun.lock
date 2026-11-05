@@ -29,7 +29,7 @@
     },
     "packages/zen-udf-contrib": {
       "name": "@republicroad/zen-udf-contrib",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "dependencies": {
         "@republicroad/zen-udf": "^2.0.0",
         "@sinclair/typebox": "0.34.38",
