@@ -4,6 +4,12 @@
 import "./reference.ts";
 
 export { loadReferenceInto, referencePacks } from "./reference.ts";
+// HAProxy 计数节点三专用工具（聚集检测 / 近似滑窗计数 / A:B 计分板）：
+// 组合根 new HaProxyCountNode({ baseUrl }) 后经 createXxx(node) 工厂构造并注册
+export { HaProxyCountNode, type HaNodeOptions, type ScoreboardSlot } from "./haproxy-nodes.ts";
+export { createClusterDetectTool } from "./cluster-detect.ts";
+export { createApproxCountTool } from "./approx-count.ts";
+export { createScoreboardTool, type ScoreboardToolOptions } from "./scoreboard.ts";
 export { type ReferencePack } from "./reference.ts";
 export {
   deleteRoster,
