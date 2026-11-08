@@ -1046,7 +1046,7 @@ class DecisionRuntime {
       const fSchema = this.registry.udfFunctionSchema(funcName);
       const semantics = (fSchema?.semantics as UdfSemantics | undefined) ?? "query";
       const temporal = (fSchema?.temporal as "event" | "processing" | undefined) ?? "event";
-      const fidelity = fSchema?.fidelity as "exact-per-event" | "bucketed" | "interpolated" | undefined;
+      const fidelity = fSchema?.fidelity as import("./tool.ts").UdfFidelity | undefined;
       const stateful = fSchema?.stateful as boolean | undefined;
       const idempotent = fSchema?.idempotent as boolean | undefined;
 

@@ -15,7 +15,7 @@ export type { ToolContext };
 /** 时间档位（ADR-021 §1.1）：event=事件时间可锚（asOf 复算）；processing=处理时间（replay 路径受 §1.2 强制） */
 export type UdfTemporal = "event" | "processing";
 /** 保真披露（ADR-021 §1.1，R1 改名——与 velocity windowType 窗口语义轴正交）：聚合实现的保真度 */
-export type UdfFidelity = "exact-per-event" | "bucketed" | "interpolated";
+export type UdfFidelity = "exact-per-event" | "bucketed" | "interpolated" | "sketch";
 
 export interface ToolExample<I extends TSchema, O extends TSchema> {
   input: Static<I>;

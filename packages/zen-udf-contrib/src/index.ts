@@ -10,6 +10,9 @@ export { HaProxyCountNode, type HaNodeOptions, type ScoreboardSlot } from "./hap
 export { createClusterDetectTool } from "./cluster-detect.ts";
 export { createApproxCountTool } from "./approx-count.ts";
 export { createScoreboardTool, type ScoreboardToolOptions } from "./scoreboard.ts";
+export { InMemoryDedupHllStore, type DedupHllStore, type DedupHllToolOptions } from "./dedup-hll.ts";
+export { createDedupHllTools } from "./dedup-hll.ts";
+export { Hll } from "./hll.ts";
 export { type ReferencePack } from "./reference.ts";
 export {
   deleteRoster,

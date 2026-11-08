@@ -1,7 +1,7 @@
 import { asTypedValueEnvelope } from "./instances/envelope.ts";
 import type { UdfPorts } from "./ports.ts";
 import { setPorts } from "./runtime-ports.ts";
-import type { UdfTool } from "./tool.ts";
+import type { UdfTool, UdfFidelity } from "./tool.ts";
 
 /**
  * 完整 JSON Schema 属性(与 brdeapi.geetest.com/zen_custom_node_function.json 对齐)。
@@ -108,7 +108,7 @@ export interface UdfSchema {
   /** 有状态声明（ADR-021 §1.3）：true = 禁自动重试；幂等键 = ExecContext.requestId 单源贯穿 */
   stateful?: boolean;
   /** 保真披露（ADR-021 §1.1）：缺省 exact-per-event；进 trace 与目录 */
-  fidelity?: "exact-per-event" | "bucketed" | "interpolated";
+  fidelity?: UdfFidelity;
   /** 弃用标记（A4）：目录/补全/画布三处标黄提示；since 为弃用发生的版本 */
   deprecated?: { since?: string; note?: string; replacement?: string };
 }
@@ -135,7 +135,7 @@ export interface ToolContext {
   /** 时间档位（ADR-021）：宿主 HTTP/重试包装器据此执行 §1.3 禁重试纪律 */
   temporal?: "event" | "processing";
   stateful?: boolean;
-  fidelity?: "exact-per-event" | "bucketed" | "interpolated";
+  fidelity?: UdfFidelity;
 }
 
 /** 可注册的 UDF 函数签名(动态注册表，运行时统一以单个 kwargs 对象调用；第二参为调用上下文) */
@@ -740,7 +740,7 @@ export interface UdfPackMeta {
   /** 状态算子 pack 级缺省（ADR-021，OQ1 裁定）：单 pack 多工具省声明；tool 级显式声明覆盖 */
   temporal?: "event" | "processing";
   stateful?: boolean;
-  fidelity?: "exact-per-event" | "bucketed" | "interpolated";
+  fidelity?: UdfFidelity;
   /** 声明式出口清单（1.6.0，调研增量④/Figma networkAccess 模式）：pack 网络出口
    * 的声明域白名单（`example.com` 精确 / `*.example.com` 通配；无 scheme/路径，
    * 不设 `*` 全通——策略面仍归 EgressGuard 端口，本声明是其交叉校验的数据源）。
