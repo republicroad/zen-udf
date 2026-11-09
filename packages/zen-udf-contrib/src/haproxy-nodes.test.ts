@@ -1,6 +1,8 @@
 // 聚集检测 / 近似滑窗计数 / A:B 计分板工具的单元测试（mock 节点：slot 路由、ratio 守卫、键消塌缩）
 import { describe, expect, test } from "vitest";
 
+import { runWithExecContext } from "@republicroad/zen-udf";
+
 import { createApproxCountTool } from "./approx-count.ts";
 import { createClusterDetectTool } from "./cluster-detect.ts";
 import { createScoreboardTool } from "./scoreboard.ts";
@@ -26,6 +28,14 @@ function mockNode(handlers: {
     },
     scoreboardTally: async (entity: string, slot: string) => {
       const r = handlers.scoreboard?.(entity, slot) ?? { a: 0, b: 0 };
+      return r;
+    },
+    readCount: async (entity: string) => {
+      const r = handlers.count?.(entity) ?? { counter: 0, idle: 0, ttl: 0 };
+      return r;
+    },
+    readCluster: async (group: string, value: string) => {
+      const r = handlers.distinct?.(group, value) ?? { uv: 0, pv: 0, gpv: 0, gidle: 0, vidle: 0, gttl: 0, vttl: 0 };
       return r;
     },
     __calls: calls,
@@ -108,5 +118,48 @@ describe("cluster_probe 三级节拍透传", () => {
     expect(r.vidle).toBe(9);
     expect(r.gttl).toBe(600);
     expect(r.vttl).toBe(300);
+  });
+});
+
+describe("批次 80 · 影子侧只读降级", () => {
+  test("cluster_probe 影子上下文 → 走 readCluster（不触 POST 通道）", async () => {
+    let probeCalls = 0;
+    let readCalls = 0;
+    const node = {
+      clusterProbe: async () => {
+        probeCalls += 1;
+        return { uv: 0, pv: 0, gpv: 0, gidle: 0, vidle: 0, gttl: 0, vttl: 0 };
+      },
+      readCluster: async () => {
+        readCalls += 1;
+        return { uv: 7, pv: 7, gpv: 8, gidle: 1, vidle: 2, gttl: 3000, vttl: 3000 };
+      },
+      __asNode: () => node as unknown as HaProxyCountNode,
+    };
+    const tool = createClusterDetectTool(node.__asNode());
+    const outcome = await runWithExecContext({ tenantId: "t-1", shadow: { prodRev: "v1" } }, () =>
+      tool.run({ group: "ip", value: "acct" }),
+    );
+    expect((outcome as { uv: number }).uv).toBe(7);
+    expect(probeCalls).toBe(0);
+    expect(readCalls).toBe(1);
+  });
+
+  test("scoreboard_tally 影子上下文 → 强制 NONE（GET 纯读，谓词不计分）", async () => {
+    const slots: string[] = [];
+    const node = {
+      scoreboardTally: async (_entity: string, slot: string) => {
+        slots.push(slot);
+        return { a: 3, b: 1 };
+      },
+      __asNode: () => node as unknown as HaProxyCountNode,
+    };
+    const tool = createScoreboardTool(node.__asNode(), { ratioFloor: 1 });
+    const r = (await runWithExecContext({ tenantId: "t-1", shadow: { prodRev: "v1" } }, () =>
+      tool.run({ entity: "e1", incA: true, incB: false }),
+    )) as { a: number; b: number; ratio: number };
+    expect(slots).toEqual(["NONE"]); // 影子侧双真/单真都强制 NONE
+    expect(r.a).toBe(3);
+    expect(r.ratio).toBeCloseTo(3);
   });
 });

@@ -2,7 +2,7 @@
 // group 下 value 的窗口聚集（uv 首见 / pv 出现 / gpv 组事件）+ 三级 idle（gidle/vidle）
 // + ttl（距滑出）。delta pv/uv 即最近窗口的 pv/uv（导数即近似积分，双桶重合）。
 // 黑产只要时间空间聚集，立即被捕获（时间维=uv 增速/idle 骤变；空间维=度数骤增）。
-import { tool } from "@republicroad/zen-udf";
+import { getExecContext, tool } from "@republicroad/zen-udf";
 import { Type } from "@sinclair/typebox";
 
 import { HaProxyCountNode } from "./haproxy-nodes.ts";
@@ -35,7 +35,10 @@ export const createClusterDetectTool = (node: HaProxyCountNode) =>
     run: async (kwargs: { group?: unknown; value?: unknown }) => {
       const group = String(kwargs?.group ?? "");
       const value = String(kwargs?.value ?? "");
-      const row = await node.clusterProbe(group, value);
+      // AA1 补（批次 80）：影子侧 observe 降级只读——GET 纯读同一键空间的真实当前
+      // 信号（不含本次事件，与生产读数差 1 对阈值判定无实际影响），绝不写入
+      const shadow = getExecContext()?.shadow;
+      const row = shadow ? await node.readCluster(group, value) : await node.clusterProbe(group, value);
       return { uv: row.uv, pv: row.pv, gpv: row.gpv, gidle: row.gidle, vidle: row.vidle, gttl: row.gttl, vttl: row.vttl };
     },
   });

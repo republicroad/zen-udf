@@ -22,6 +22,28 @@ import { getPorts } from "./runtime-ports.ts";
 
 const CUSTOM_HANDLER_META = "__meta__";
 
+/**
+ * 请求内 observe memo 注册表（批次 80，fact-once 第一步）：键=ALS 上下文对象
+ * （每次 evaluate 唯一；handleCustomNode 重建用的冻结副本在该次内恒同一引用），
+ * 值=同参 observe 调用的结果缓存。WeakMap 随上下文对象回收——天然单次 evaluate
+ * 生命周期、无显式清理；影子路径冻结副本独立成帧，影子/生产 memo 天然隔离。
+ */
+const observeMemoRegistry = new WeakMap<object, Map<string, unknown>>();
+
+/** kwargs 规范化序列化（键排序递归，顺序无关）——observe memo 归一键用 */
+function stableStringifyValue(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stableStringifyValue);
+  if (v !== null && typeof v === "object") {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>)
+        .map(([k, x]) => [k, stableStringifyValue(x)])
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
+    );
+  }
+  return v;
+}
+const stableStringify = (v: unknown): string => JSON.stringify(stableStringifyValue(v));
+
 /** UDF 函数粒度执行轨迹（执行规范 §6.6）：经 customHandler 的 traceData 下发 */
 export interface UdfTrace {
   /** 表达式实例 key（customNode 输出字段） */
@@ -998,6 +1020,9 @@ class DecisionRuntime {
     evalContext?: unknown,
   ): Promise<unknown> {
     let breakerKey: string | null = null;
+    // 批次 80：observe memo 挂起槽（单飞 deferred）——gate 时同步占位，并发同参调用
+    // await 同一 promise（同层 Promise.all 并行竞态防护）；所有出口路径必须 resolve
+    let memoPend: { promise: Promise<unknown>; resolve: (v: unknown) => void } | null = null;
     try {
       const exprId = execExpr.id;
       const exprAst = execExpr.value;
@@ -1211,6 +1236,42 @@ class DecisionRuntime {
 
           operatorKwargs = this.registry.funcBindParams(funcName, args);
         }
+        // AA1 补（批次 80）：请求内 observe memo——同键同参=同一事实不双记。命中返回
+        // 首次 outcome（trace 标 DEDUPED），跳过 breaker/limiter/真实调用（无可保护对象）
+        if (semantics === "observe" && stateful) {
+          const memoCtx = getExecContext();
+          if (memoCtx) {
+            let memo = observeMemoRegistry.get(memoCtx);
+            if (!memo) {
+              memo = new Map();
+              observeMemoRegistry.set(memoCtx, memo);
+            }
+            const memoKey = `${funcName}::${stableStringify(operatorKwargs)}`;
+            const pending = memo.get(memoKey);
+            if (pending) {
+              // 同参调用在飞行中/已完成——单飞等待，trace 标 DEDUPED
+              const outcome = await pending.promise;
+              traces.push({
+                key: execExpr.key,
+                name: funcName,
+                micros: 0,
+                code: "DEDUPED",
+                semantics,
+                outcome,
+              });
+              return outcome;
+            }
+            let resolvePending!: (v: unknown) => void;
+            const deferred = {
+              promise: new Promise<unknown>((r) => {
+                resolvePending = r;
+              }),
+              resolve: resolvePending,
+            };
+            memo.set(memoKey, deferred);
+            memoPend = deferred;
+          }
+        }
         const kwargs: Record<string, unknown> = {
           ...operatorKwargs,
           ...context,
@@ -1284,6 +1345,7 @@ class DecisionRuntime {
           const message = timeoutError instanceof Error ? timeoutError.message : String(timeoutError);
           if (message.includes("udf timeout")) {
             const timeoutOutcome = { error: { code: "UDF_TIMEOUT", message } };
+            memoPend?.resolve(timeoutOutcome);
             traces.push({
               key: execExpr.key,
               name: funcName,
@@ -1294,6 +1356,7 @@ class DecisionRuntime {
             });
             return timeoutOutcome;
           }
+          memoPend?.resolve({ error: { code: "UDF_ERROR", message } });
           throw timeoutError;
         } finally {
           if (timeoutTimer !== undefined) {
@@ -1317,11 +1380,14 @@ class DecisionRuntime {
               outcome: result,
             });
             if (this.resultValidation === "enforce") {
-              return { error: { code: "INVALID_RESULT", issues: resultIssues } };
+              const invalidOutcome = { error: { code: "INVALID_RESULT", issues: resultIssues } };
+              memoPend?.resolve(invalidOutcome);
+              return invalidOutcome;
             }
           }
         }
 
+        memoPend?.resolve(result);
         traces.push({ key: execExpr.key, name: funcName, micros, semantics, idempotent, fidelity, outcome: result });
         return result;
       } else {

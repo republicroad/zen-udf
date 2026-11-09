@@ -90,6 +90,42 @@ export class HaProxyCountNode {
     };
   }
 
+  // ── GET 纯读三方法（批次 80，影子/旁路语义）──
+  // 读侧转换器（table_*）无 is_post 门（xrule 源 cfg 实构）：GET 同 endpoint 即纯读
+  // ——不 track（键不存在不建键，返回零值）、不 incr、不刷新 idle/ttl，返回形状与
+  // POST 一致。影子执行侧 observe 工具据此降级为只读（读生产键空间真实当前信号）。
+
+  /** 纯读滑窗计数（POST→GET 降级） */
+  async readCount(entity: string): Promise<{ counter: number; idle: number; ttl: number }> {
+    const row = await this.call<Record<string, unknown>>(
+      `trailing_count_${this.suffix()}`,
+      `mykey=${encodeURIComponent(entity)}`,
+      "GET",
+    );
+    return { counter: Number(row.counter ?? 0), idle: Number(row.idle ?? 0), ttl: Number(row.ttl ?? 0) };
+  }
+
+  /** 纯读聚集探测（POST→GET 降级） */
+  async readCluster(
+    group: string,
+    value: string,
+  ): Promise<{ uv: number; pv: number; gpv: number; gidle: number; vidle: number; gttl: number; vttl: number }> {
+    const row = await this.call<Record<string, unknown>>(
+      `trailing_distinct_${this.suffix()}`,
+      `group=${encodeURIComponent(group)}&distinct=${encodeURIComponent(value)}`,
+      "GET",
+    );
+    return {
+      gpv: Number(row.gpv ?? 0),
+      uv: Number(row.uv ?? 0),
+      pv: Number(row.pv ?? 0),
+      gidle: Number(row.gidle ?? 0),
+      vidle: Number(row.vidle ?? 0),
+      gttl: Number(row.gttl ?? 0),
+      vttl: Number(row.vttl ?? 0),
+    };
+  }
+
   /** A:B 计分：slot 路由递增并读回双计数（NONE = GET 纯读不建键——键污染防护） */
   async scoreboardTally(entity: string, slot: ScoreboardSlot): Promise<{ a: number; b: number }> {
     if (slot === "NONE") {

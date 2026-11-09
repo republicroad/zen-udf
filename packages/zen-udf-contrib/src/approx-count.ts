@@ -1,6 +1,6 @@
 // 近似滑窗计数参考域：当前请求的滑动窗口计数（单计数器，双桶插值）。
 // counter 即 delta（导数≈窗口累计，双桶重合）；ttl=距滑出；idle=距上次事件。
-import { tool } from "@republicroad/zen-udf";
+import { getExecContext, tool } from "@republicroad/zen-udf";
 import { Type } from "@sinclair/typebox";
 
 import { HaProxyCountNode } from "./haproxy-nodes.ts";
@@ -28,7 +28,10 @@ export const createApproxCountTool = (node: HaProxyCountNode) =>
     run: async (kwargs: { entity?: unknown; kind?: unknown }) => {
       const kind = String(kwargs?.kind ?? "");
       const entity = String(kwargs?.entity ?? "");
-      const row = await node.approxCount(kind ? `${kind}:${entity}` : entity);
+      const key = kind ? `${kind}:${entity}` : entity;
+      // AA1 补（批次 80）：影子侧 GET 纯读降级（同 cluster_probe 注记）
+      const shadow = getExecContext()?.shadow;
+      const row = shadow ? await node.readCount(key) : await node.approxCount(key);
       return { counter: row.counter, idle: row.idle, ttl: row.ttl };
     },
   });

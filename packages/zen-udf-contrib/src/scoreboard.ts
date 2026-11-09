@@ -4,7 +4,7 @@
 // （GET 纯读化立法的键污染防护）。比值带分母守卫（velocity_ratio 同款）。
 //
 // fidelity = interpolated（HAProxy 双桶插值）；temporal = processing。
-import { tool } from "@republicroad/zen-udf";
+import { getExecContext, tool } from "@republicroad/zen-udf";
 import { Type } from "@sinclair/typebox";
 
 import { HaProxyCountNode, type ScoreboardSlot } from "./haproxy-nodes.ts";
@@ -38,14 +38,18 @@ export const createScoreboardTool = (node: HaProxyCountNode, opts: ScoreboardToo
     }),
     run: async (kwargs: { entity?: unknown; incA?: unknown; incB?: unknown }) => {
       const entity = String(kwargs?.entity ?? "");
+      // AA1 补（批次 80）：影子侧强制 NONE（GET 纯读不建键现成路径）——计分不写
+      const shadow = getExecContext()?.shadow;
       const slot: ScoreboardSlot =
-        kwargs?.incA === true && kwargs?.incB === true
-          ? "AB"
-          : kwargs?.incA === true
-            ? "A"
-            : kwargs?.incB === true
-              ? "B"
-              : "NONE";
+        shadow
+          ? "NONE"
+          : kwargs?.incA === true && kwargs?.incB === true
+            ? "AB"
+            : kwargs?.incA === true
+              ? "A"
+              : kwargs?.incB === true
+                ? "B"
+                : "NONE";
       const { a, b } = await node.scoreboardTally(entity, slot);
       const floor = opts.ratioFloor ?? 3;
       const ratio = b >= floor ? a / b : null;
