@@ -36,8 +36,10 @@ export interface GroupDistinctCommonResult {
   group: string;
   v: string;
   timestamp: string;
-  /** 距窗口滑出秒数（近似档由存储自报；缺省 undefined = 未实现） */
-  ttl?: number;
+  /** 组条目距窗口滑出秒数（gttl；近似档由存储自报，缺省 undefined = 未实现） */
+  gttl?: number;
+  /** (组,值) 复合条目距窗口滑出秒数（vttl；该条目过期后同值再现会重计 uv——首见窗口记忆载体） */
+  vttl?: number;
 }
 
 /** 频控存储端口：Redis 化实现（verdict 侧）须通过 rate-store-conformance 契约测试 */
@@ -106,6 +108,7 @@ export class InMemoryRateStore implements RateStore {
     this.valueWindows.set(value, globalStamps);
 
     const groupOldest = entry.pv[0] ?? now;
+    const pairOldest = entry.pv.length > 0 ? Math.min(...entry.pv) : now;
     return {
       idle: secondsSince(now, pairPrevious),
       pv: entry.pv.length,
@@ -115,7 +118,8 @@ export class InMemoryRateStore implements RateStore {
       group,
       v: value,
       timestamp: new Date(now).toISOString(),
-      ttl: Math.max(0, Math.floor(windowMs / 1000) - secondsSince(now, groupOldest)),
+      gttl: Math.max(0, Math.floor(windowMs / 1000) - secondsSince(now, groupOldest)),
+      vttl: Math.max(0, Math.floor(windowMs / 1000) - secondsSince(now, pairOldest)),
     };
   }
 }
