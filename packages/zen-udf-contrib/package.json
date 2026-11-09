@@ -1,7 +1,7 @@
 {
   "name": "@republicroad/zen-udf-contrib",
   "license": "MIT",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "description": "zen-udf reference domains: velocity, value-list, http, intl-phone, IP, identity, notify, crypto and more (21 domains, 54 tools)",
   "type": "module",
   "main": "src/index.ts",
@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@republicroad/zen-udf": "^2.1.0",
+    "@republicroad/zen-udf": "^2.1.1",
     "@sinclair/typebox": "0.34.38"
   },
   "devDependencies": {

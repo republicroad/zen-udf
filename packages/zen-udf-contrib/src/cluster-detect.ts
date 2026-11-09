@@ -29,12 +29,13 @@ export const createClusterDetectTool = (node: HaProxyCountNode) =>
       gpv: Type.Integer({ title: "组事件数", default: 0 }),
       gidle: Type.Integer({ title: "组 idle（秒）", default: 0 }),
       vidle: Type.Integer({ title: "值 idle（秒）", default: 0 }),
-      ttl: Type.Integer({ title: "距滑出（秒）", default: 0 }),
+      gttl: Type.Integer({ title: "组条目距滑出（秒）", default: 0 }),
+      vttl: Type.Integer({ title: "值条目距滑出（秒）", default: 0 }),
     }),
     run: async (kwargs: { group?: unknown; value?: unknown }) => {
       const group = String(kwargs?.group ?? "");
       const value = String(kwargs?.value ?? "");
       const row = await node.clusterProbe(group, value);
-      return { uv: row.uv, pv: row.pv, gpv: row.gpv, gidle: row.gidle, vidle: row.vidle, ttl: row.ttl };
+      return { uv: row.uv, pv: row.pv, gpv: row.gpv, gidle: row.gidle, vidle: row.vidle, gttl: row.gttl, vttl: row.vttl };
     },
   });

@@ -73,7 +73,7 @@ export class HaProxyCountNode {
   async clusterProbe(
     group: string,
     value: string,
-  ): Promise<{ uv: number; pv: number; gpv: number; gidle: number; vidle: number; ttl: number }> {
+  ): Promise<{ uv: number; pv: number; gpv: number; gidle: number; vidle: number; gttl: number; vttl: number }> {
     const row = await this.call<Record<string, unknown>>(
       `trailing_distinct_${this.suffix()}`,
       `group=${encodeURIComponent(group)}&distinct=${encodeURIComponent(value)}`,
@@ -85,7 +85,8 @@ export class HaProxyCountNode {
       pv: Number(row.pv ?? 0),
       gidle: Number(row.gidle ?? 0),
       vidle: Number(row.vidle ?? 0),
-      ttl: Number(row.ttl ?? 0),
+      gttl: Number(row.gttl ?? 0),
+      vttl: Number(row.vttl ?? 0),
     };
   }
 
