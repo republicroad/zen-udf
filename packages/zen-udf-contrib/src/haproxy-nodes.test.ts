@@ -95,9 +95,9 @@ describe("approx_trailing_count 键消塌缩", () => {
 });
 
 describe("cluster_probe 三级节拍透传", () => {
-  test("uv/pv/gpv/gidle/vidle/ttl 全字段透传", async () => {
+  test("uv/pv/gpv/gidle/vidle/gttl/vttl 全字段透传", async () => {
     const node = mockNode({
-      distinct: () => ({ uv: 7, pv: 42, gpv: 50, gidle: 3, vidle: 9, ttl: 600 }),
+      distinct: () => ({ uv: 7, pv: 42, gpv: 50, gidle: 3, vidle: 9, gttl: 600, vttl: 300 }),
     });
     const tool = createClusterDetectTool(node.__asNode());
     const r = (await tool.run({ group: "ip-1", value: "13800138000" })) as Record<string, number>;
@@ -106,6 +106,7 @@ describe("cluster_probe 三级节拍透传", () => {
     expect(r.gpv).toBe(50);
     expect(r.gidle).toBe(3);
     expect(r.vidle).toBe(9);
-    expect(r.ttl).toBe(600);
+    expect(r.gttl).toBe(600);
+    expect(r.vttl).toBe(300);
   });
 });
