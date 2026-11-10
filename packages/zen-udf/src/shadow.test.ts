@@ -201,4 +201,50 @@ describe("AA1 影子评估", () => {
     const codes = Object.values(trace ?? {}).flatMap((n) => (n?.traceData?.udf ?? []).map((t) => t.code));
     expect(codes).toContain("DEDUPED");
   });
+
+  test("批次 80：跨自定义节点同参 observe——memoId 模式跨 TSFN 克隆命中", async () => {
+    const store = { count: 0 };
+    const registry = new UdfRegistry();
+    registry.registerFunction(
+      function observe_udf() {
+        store.count += 1;
+        return { seen: store.count };
+      },
+      "probe",
+      { semantics: "observe", stateful: true },
+    );
+    // 两个独立 customNode 各调一次同参 observe
+    const graph = {
+      id: "g",
+      nodes: [
+        { id: "in", type: "inputNode", name: "Request" },
+        { id: "c1", type: "customNode", name: "n1",
+          content: { kind: "UDF", config: { expressions: [{ id: "e1", key: "v1", value: "observe_udf;;" }] } } },
+        { id: "c2", type: "customNode", name: "n2",
+          content: { kind: "UDF", config: { expressions: [{ id: "e2", key: "v2", value: "observe_udf;;" }] } } },
+        { id: "out", type: "outputNode", name: "Response" },
+      ],
+      edges: [
+        { id: "ed1", sourceId: "in", targetId: "c1", type: "edge" },
+        { id: "ed2", sourceId: "c1", targetId: "c2", type: "edge" },
+        { id: "ed3", sourceId: "c2", targetId: "out", type: "edge" },
+      ],
+    };
+    const runtime = new DecisionRuntime({ registry });
+    await runWithExecContext({ tenantId: "t-1" }, () => {
+      runtime.createDecisionWithCacheKey("k", graph, "v1");
+      return Promise.resolve();
+    });
+    const result = await runWithExecContext({ tenantId: "t-1" }, () =>
+      runtime.evaluateAsync("k", {}, { trace: true }, "v1"),
+    );
+    // fact-once 跨节点：memoId 模式使 memo 命中跨 TSFN 克隆（同请求同参只记一次）
+    expect(store.count).toBe(1);
+    const out = result.result as { v1?: { seen?: number }; v2?: { seen?: number } };
+    expect(out?.v1?.seen).toBe(1);
+    expect(out?.v2?.seen).toBe(1); // memo 返回首次 outcome
+    const trace = result.trace as Record<string, { traceData?: { udf?: Array<{ code?: string }> } }>;
+    const codes = Object.values(trace ?? {}).flatMap((n) => (n?.traceData?.udf ?? []).map((t) => t.code));
+    expect(codes).toContain("DEDUPED");
+  });
 });

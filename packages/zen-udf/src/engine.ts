@@ -23,12 +23,14 @@ import { getPorts } from "./runtime-ports.ts";
 const CUSTOM_HANDLER_META = "__meta__";
 
 /**
- * 请求内 observe memo 注册表（批次 80，fact-once 第一步）：键=ALS 上下文对象
- * （每次 evaluate 唯一；handleCustomNode 重建用的冻结副本在该次内恒同一引用），
- * 值=同参 observe 调用的结果缓存。WeakMap 随上下文对象回收——天然单次 evaluate
- * 生命周期、无显式清理；影子路径冻结副本独立成帧，影子/生产 memo 天然隔离。
+ * 请求内 observe memo 注册表（批次 80，fact-once 第一步）：键=evaluateAsync 创建的
+ * opaque memoId（字符串跨冻结副本/TSFN 克隆保真——journalId 同款；初版按 ALS 上下文
+ * 对象身份查 WeakMap，被跨节点克隆证伪：每节点一个克隆键=per-node memo 跨节点失效），
+ * 值=同参 observe 调用的 deferred 缓存。生命周期=单次 evaluate：evaluateAsync finally
+ * 显式 delete（journalId 清理同款）——无跨请求保留、无泄漏；影子路径独立 memoId 成帧，
+ * 影子/生产 memo 天然隔离。
  */
-const observeMemoRegistry = new WeakMap<object, Map<string, unknown>>();
+const observeMemoRegistry = new Map<string, Map<string, unknown>>();
 
 /** kwargs 规范化序列化（键排序递归，顺序无关）——observe memo 归一键用 */
 function stableStringifyValue(v: unknown): unknown {
@@ -545,6 +547,9 @@ class DecisionRuntime {
       const journalId = needsAuditSink && execCtx ? newAuditJournalId() : undefined;
       const journal = journalId ? ([] as UdfTrace[]) : undefined;
       if (journalId && journal) auditJournalRegistry.set(journalId, journal);
+      // 批次 80：请求内 observe memo 帧——opaque id 随 ALS ctx/embed 副本走，finally 清理
+      const observeMemoId = newAuditJournalId();
+      observeMemoRegistry.set(observeMemoId, new Map());
       const evalOpts =
         needsAuditSink && !journal
           ? ({ ...(options as Record<string, unknown> | undefined), trace: true } as ZenEvaluateOptions)
@@ -552,8 +557,9 @@ class DecisionRuntime {
       try {
         const evaluateCall = async () =>
           decision.evaluate(DecisionRuntime.enrichInputWithExecContext(ctx), evalOpts) as Promise<EvaluateResponse>;
-        const result: EvaluateResponse = journalId
-          ? await runWithExecContext({ ...(execCtx as ExecContext), journalId }, evaluateCall)
+        const result: EvaluateResponse =
+          journalId || observeMemoId
+            ? await runWithExecContext({ ...(execCtx as ExecContext), journalId, observeMemoId }, evaluateCall)
           : await evaluateCall();
         // 剥离输出中的上下文保留键（AA1：键仅用于跨 TSFN 传播，不进最终结论）
         if (result.result !== null && typeof result.result === "object" && !Array.isArray(result.result)) {
@@ -569,6 +575,7 @@ class DecisionRuntime {
         return result;
       } finally {
         if (journalId) auditJournalRegistry.delete(journalId);
+        observeMemoRegistry.delete(observeMemoId);
       }
     };
     if (this.otel) {
@@ -615,10 +622,15 @@ class DecisionRuntime {
     const base = getExecContext();
     const prod = await this.evaluateAsync(key, input, options, revs.prod);
 
+    // 影子侧独立 observe memo 帧（批次 80）：独立 memoId=影子/生产 memo 天然隔离，
+    // 跨节点（TSFN 克隆）经 id 命中同一帧；评估完成即清理
+    const shadowMemoId = newAuditJournalId();
+    observeMemoRegistry.set(shadowMemoId, new Map());
     const shadowExec = {
       ...(base ?? { tenantExempt: true }),
       tenantId: base?.tenantId ?? "single",
       shadow: { prodRev: revs.prod },
+      observeMemoId: shadowMemoId,
     };
     const shadowDecision = this.getDecision(key, revs.shadow);
     const enrichedShadowInput = {
@@ -627,7 +639,9 @@ class DecisionRuntime {
     };
     const shadowResult = (await runWithExecContext(shadowExec as ExecContext, () =>
       shadowDecision.evaluate(enrichedShadowInput, options as ZenEvaluateOptions | null | undefined),
-    )) as EvaluateResponse;
+    ).finally(() => {
+      observeMemoRegistry.delete(shadowMemoId);
+    })) as EvaluateResponse;
     // 最终结论剥离上下文保留键
     if (
       shadowResult.result !== null &&
@@ -1239,13 +1253,9 @@ class DecisionRuntime {
         // AA1 补（批次 80）：请求内 observe memo——同键同参=同一事实不双记。命中返回
         // 首次 outcome（trace 标 DEDUPED），跳过 breaker/limiter/真实调用（无可保护对象）
         if (semantics === "observe" && stateful) {
-          const memoCtx = getExecContext();
-          if (memoCtx) {
-            let memo = observeMemoRegistry.get(memoCtx);
-            if (!memo) {
-              memo = new Map();
-              observeMemoRegistry.set(memoCtx, memo);
-            }
+          const memoFrameId = getExecContext()?.observeMemoId;
+          const memo = memoFrameId ? observeMemoRegistry.get(memoFrameId) : undefined;
+          if (memo) {
             const memoKey = `${funcName}::${stableStringify(operatorKwargs)}`;
             const pending = memo.get(memoKey);
             if (pending) {
