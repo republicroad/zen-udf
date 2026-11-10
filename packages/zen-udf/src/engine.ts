@@ -30,7 +30,11 @@ const CUSTOM_HANDLER_META = "__meta__";
  * 显式 delete（journalId 清理同款）——无跨请求保留、无泄漏；影子路径独立 memoId 成帧，
  * 影子/生产 memo 天然隔离。
  */
-const observeMemoRegistry = new Map<string, Map<string, unknown>>();
+interface ObserveMemoDeferred {
+  promise: Promise<unknown>;
+  resolve: (v: unknown) => void;
+}
+const observeMemoRegistry = new Map<string, Map<string, ObserveMemoDeferred>>();
 
 /** kwargs 规范化序列化（键排序递归，顺序无关）——observe memo 归一键用 */
 function stableStringifyValue(v: unknown): unknown {
@@ -38,7 +42,7 @@ function stableStringifyValue(v: unknown): unknown {
   if (v !== null && typeof v === "object") {
     return Object.fromEntries(
       Object.entries(v as Record<string, unknown>)
-        .map(([k, x]) => [k, stableStringifyValue(x)])
+        .map(([k, x]) => [k, stableStringifyValue(x)] as [string, unknown])
         .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
     );
   }
@@ -1034,7 +1038,7 @@ class DecisionRuntime {
     let breakerKey: string | null = null;
     // 批次 80：observe memo 挂起槽（单飞 deferred）——gate 时同步占位，并发同参调用
     // await 同一 promise（同层 Promise.all 并行竞态防护）；所有出口路径必须 resolve
-    let memoPend: { promise: Promise<unknown>; resolve: (v: unknown) => void } | null = null;
+    let memoPend: ObserveMemoDeferred | null = null;
     try {
       const exprId = execExpr.id;
       const exprAst = execExpr.value;
