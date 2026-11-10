@@ -547,9 +547,9 @@ class DecisionRuntime {
       const journalId = needsAuditSink && execCtx ? newAuditJournalId() : undefined;
       const journal = journalId ? ([] as UdfTrace[]) : undefined;
       if (journalId && journal) auditJournalRegistry.set(journalId, journal);
-      // 批次 80：请求内 observe memo 帧——opaque id 随 ALS ctx/embed 副本走，finally 清理
-      const observeMemoId = newAuditJournalId();
-      observeMemoRegistry.set(observeMemoId, new Map());
+      // 批次 80 修订（用户裁定）：observe memo 帧撤出生产热路径——memo 仅存在于影子帧
+      // （evaluateShadow 的 shadowMemoId，低频试跑场景）。生产请求 observeMemoId 缺位，
+      // executeExpr 闸单次 undefined 检查即旁路（纳秒级）——热路径零 registry 参与。
       const evalOpts =
         needsAuditSink && !journal
           ? ({ ...(options as Record<string, unknown> | undefined), trace: true } as ZenEvaluateOptions)
@@ -557,9 +557,8 @@ class DecisionRuntime {
       try {
         const evaluateCall = async () =>
           decision.evaluate(DecisionRuntime.enrichInputWithExecContext(ctx), evalOpts) as Promise<EvaluateResponse>;
-        const result: EvaluateResponse =
-          journalId || observeMemoId
-            ? await runWithExecContext({ ...(execCtx as ExecContext), journalId, observeMemoId }, evaluateCall)
+        const result: EvaluateResponse = journalId
+          ? await runWithExecContext({ ...(execCtx as ExecContext), journalId }, evaluateCall)
           : await evaluateCall();
         // 剥离输出中的上下文保留键（AA1：键仅用于跨 TSFN 传播，不进最终结论）
         if (result.result !== null && typeof result.result === "object" && !Array.isArray(result.result)) {
@@ -575,7 +574,6 @@ class DecisionRuntime {
         return result;
       } finally {
         if (journalId) auditJournalRegistry.delete(journalId);
-        observeMemoRegistry.delete(observeMemoId);
       }
     };
     if (this.otel) {
@@ -1250,8 +1248,10 @@ class DecisionRuntime {
 
           operatorKwargs = this.registry.funcBindParams(funcName, args);
         }
-        // AA1 补（批次 80）：请求内 observe memo——同键同参=同一事实不双记。命中返回
-        // 首次 outcome（trace 标 DEDUPED），跳过 breaker/limiter/真实调用（无可保护对象）
+        // AA1 补（批次 80 修订）：observe memo 仅影子帧持有（evaluateShadow 的
+        // shadowMemoId——低频试跑场景）；生产请求 memoFrameId 缺位即旁路（热路径
+        // 零 registry 参与，用户裁定：热路径不埋无业界先例机制）。影子腿内同键同参
+        // =同一事实只记一次，命中返回首次 outcome（trace 标 DEDUPED）
         if (semantics === "observe" && stateful) {
           const memoFrameId = getExecContext()?.observeMemoId;
           const memo = memoFrameId ? observeMemoRegistry.get(memoFrameId) : undefined;

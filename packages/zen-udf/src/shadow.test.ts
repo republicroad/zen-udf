@@ -145,11 +145,18 @@ describe("AA1 影子评估", () => {
     expect((shadow.shadow as { v?: { shadow?: boolean } })?.v?.shadow).toBe(true);
   });
 
-  test("批次 80：请求内 observe memo——同请求同参调用不双记", async () => {
+  test("批次 80：影子帧 observe memo——同参调用影子腿只真实执行一次", async () => {
     const store = { count: 0 };
+    const spies = { prodCalls: 0, shadowCalls: 0 };
     const registry = new UdfRegistry();
     registry.registerFunction(
       function observe_udf() {
+        const shadow = getExecContext()?.shadow;
+        if (shadow) {
+          spies.shadowCalls += 1;
+          return { seen: store.count };
+        }
+        spies.prodCalls += 1;
         store.count += 1;
         return { seen: store.count };
       },
@@ -188,18 +195,17 @@ describe("AA1 影子评估", () => {
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () =>
-      runtime.evaluateAsync("k", {}, { trace: true }, "v1"),
+    const before = store.count;
+    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+      runtime.evaluateShadow("k", { prod: "v1", shadow: "v1" }, {}),
     );
-    // fact-once：同请求同参 observe 只真实执行一次
-    expect(store.count).toBe(1);
-    const out = result.result as { v1?: { seen?: number }; v2?: { seen?: number } };
-    expect(out?.v1?.seen).toBe(1);
-    expect(out?.v2?.seen).toBe(1); // memo 返回首次 outcome
-    // trace 标注 DEDUPED
-    const trace = result.trace as Record<string, { traceData?: { udf?: Array<{ code?: string }> } }>;
-    const codes = Object.values(trace ?? {}).flatMap((n) => (n?.traceData?.udf ?? []).map((t) => t.code));
-    expect(codes).toContain("DEDUPED");
+    // 生产腿无 memo（热路径零参与）：两个实例各写一次；影子腿只读本就不写
+    expect(store.count - before).toBe(2); // 仅生产腿写入
+    const sh = shadow.shadow as { v1?: { seen?: number }; v2?: { seen?: number } };
+    expect(sh?.v1?.seen).toBe(sh?.v2?.seen); // 影子腿两实例读到一致值
+    // 影子腿两个实例只真实调用一次 fn（第二实例 memo 命中，DEDUPED）；生产腿无 memo 各调一次
+    expect(spies.prodCalls).toBe(2);
+    expect(spies.shadowCalls).toBe(1);
   });
 
   test("批次 80：跨自定义节点同参 observe——memoId 模式跨 TSFN 克隆命中", async () => {
@@ -235,16 +241,13 @@ describe("AA1 影子评估", () => {
       runtime.createDecisionWithCacheKey("k", graph, "v1");
       return Promise.resolve();
     });
-    const result = await runWithExecContext({ tenantId: "t-1" }, () =>
-      runtime.evaluateAsync("k", {}, { trace: true }, "v1"),
+    const before = store.count;
+    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+      runtime.evaluateShadow("k", { prod: "v1", shadow: "v1" }, {}),
     );
-    // fact-once 跨节点：memoId 模式使 memo 命中跨 TSFN 克隆（同请求同参只记一次）
-    expect(store.count).toBe(1);
-    const out = result.result as { v1?: { seen?: number }; v2?: { seen?: number } };
-    expect(out?.v1?.seen).toBe(1);
-    expect(out?.v2?.seen).toBe(1); // memo 返回首次 outcome
-    const trace = result.trace as Record<string, { traceData?: { udf?: Array<{ code?: string }> } }>;
-    const codes = Object.values(trace ?? {}).flatMap((n) => (n?.traceData?.udf ?? []).map((t) => t.code));
-    expect(codes).toContain("DEDUPED");
+    // 影子腿跨节点 memo（memoId 跨 TSFN 克隆）：第二节点命中首节点 outcome
+    expect(store.count - before).toBe(3); // prod 2 + shadow 1
+    const sh = shadow.shadow as { v1?: { seen?: number }; v2?: { seen?: number } };
+    expect(sh?.v1?.seen).toBe(sh?.v2?.seen);
   });
 });

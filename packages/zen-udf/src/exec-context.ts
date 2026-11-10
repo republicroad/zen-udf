@@ -13,9 +13,10 @@ export interface ExecContext {
   replay?: ReplayContext;
   /** 影子评估标记（AA1）：observe/query 照常执行；act 返回 intent 占位（不双次处置）。影子侧不产生审计事件 */
   shadow?: { prodRev: string };
-  /** 请求内 observe memo 帧 id（批次 80 fact-once）：evaluateAsync 创建 opaque id，
-   *  Map 本体挂 engine 模块级 registry——id 跨冻结副本/TSFN 克隆保真（journalId 同款），
-   *  同请求内全部自定义节点（跨克隆）命中同一 memo Map；evaluateAsync finally 清理 */
+  /** observe memo 帧 id（批次 80 修订）：**仅影子帧持有**（evaluateShadow 创建的
+   *  shadowMemoId，低频试跑场景）——生产热路径缺位即旁路（用户裁定：热路径不埋
+   *  无业界先例机制）。id 跨冻结副本/TSFN 克隆保真（journalId 同款），影子腿内
+   *  跨节点命中同一 memo Map；影子评估结束即清理 */
   observeMemoId?: string;
   /**
    * 显式单租户豁免：置 true 后 evaluate 入口不再强制 tenantId，
