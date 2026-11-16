@@ -129,6 +129,23 @@ example 生成三条 conformance 断言（§7）：input 经 §5.2 校验通过�
 
 - **脱敏**：错误信息 MUST 经脱敏管道（路径/凭证类值替换为占位）后暴露。
 
+### 5.5 执行上下文通道（ExecContext，2.3.0）
+
+执行环境上下文（租户/请求/回放/影子等）对**每个自定义节点可达**，与
+passThrough（仅约束节点输出是否透传输入）正交。通道分两层：
+
+- **进程内**：`getExecContext()` / `runWithExecContext(ctx, fn)`（AsyncLocalStorage）；
+- **跨内核边界**（ALS 不跨 TSFN 存活）：宿主经 `evaluate(context, opts, execCtx)`
+  第三参下发 → zen fork 内核 `CustomNodeRequest.executionContext` 送达 handler →
+  `handleCustomNode` 提取后 `runWithExecContext` 重建 ALS。裸 `createDecision()
+  .evaluate()` 不经宿主包装 = 无上下文（匿名求值形态，已知边界非缺陷）。
+
+历史机制保留键 `__zen_udf_exec_ctx__`（ExecContext 嵌入 input 随数据面流动、
+出口剥离）**已退役**（2.3.0）——执行上下文与 input 混流不利于规则治理与作用域
+隔离；退役过程与衰减排查见 `docs/design/zen-udf-batch166-passthrough-attenuation.md`
+§7。`ExecContext.meta`（`Record<string, unknown>`）为宿主元数据的开放通道，
+引擎不读；键升格为类型化字段仅当引擎语义依赖它（需 ADR）。
+
 ## 6. 执行策略边界（机制/策略分界）
 
 超时、并发闸、出网控制（EgressGuard）、secret 解析、重试**不属于本契约**——它们是
