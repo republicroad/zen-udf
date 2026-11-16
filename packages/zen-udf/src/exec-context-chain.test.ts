@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { DecisionRuntime, getExecContext, runWithExecContext, UdfRegistry } from "./index.ts";
 
 /**
