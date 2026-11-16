@@ -48,6 +48,9 @@ jobs:
           if npm view "$NAME@$VERSION" version 2>/dev/null; then
             echo "$NAME@$VERSION already on registry, skip"
           else
+            # 必须在包目录内发布——仓根 package.json 带 private:true，根目录
+            # 直接跑 npm publish 报 EPRIVATE（批次 168 contrib 2.0.0 首验实证）
+            cd "$PKG"
             npm publish --access public
           fi
         env:
