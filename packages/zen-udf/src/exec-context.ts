@@ -29,6 +29,16 @@ export interface ExecContext {
    * 副本只透传 id，journal 本体不可被图表达式触及（§5 篡改加固性质保持）。
    */
   journalId?: string;
+  /**
+   * 宿主元数据通道（上游提案 upstream-zen-udf-exec-context-meta.md，OTel
+   * baggage 同款）：任意 JSON-able k/v，随 ALS/TSFN 克隆传播。三契约：
+   * ① 引擎语义【不读】此通道（data/control 分离——引擎行为只由 typed 字段驱动）；
+   * ② 值必须可结构化克隆（JSON-able：禁函数/类实例/symbol——TSFN serde 边界）；
+   * ③ 体积建议上限 4KB（实现不强制）。
+   * 消费方 = 工具/宿主经 getExecContext()?.meta；
+   * 升格规则：某键被引擎语义依赖时 MUST 升格为 typed 字段（需 ADR）。
+   */
+  meta?: Record<string, unknown>;
 }
 
 /** 单条 UDF 观测 journal（来自审计事件 observed；Y3 回放的数据源） */

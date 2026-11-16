@@ -334,10 +334,13 @@ class DecisionRuntime {
   private composeCacheKey(key: string, rev?: string): string {
     const ctx = getExecContext();
     const tenant = ctx?.tenantId ?? (ctx?.tenantExempt ? "single" : "");
+
     if (!tenant) {
       throw new Error("[zen-udf] cache operations require exec context tenantId (or tenantExempt)");
     }
-    return tenant + ":" + key + "@" + (rev ?? "latest");
+    const ck = tenant + ":" + key + "@" + (rev ?? "latest");
+    if (process.env.DBG_COMPOSE) console.log("[DBG compose]", ck);
+    return ck;
   }
 
   private buildAndCache(cacheKey: string, content: string | object): ZenDecision {
@@ -432,7 +435,11 @@ class DecisionRuntime {
     if (!execCtx) {
       return ctx;
     }
-    return { ...(ctx as Record<string, unknown>), [EXEC_CONTEXT_INPUT_KEY]: Object.freeze({ ...execCtx }) };
+    const embedded = Object.freeze({ ...execCtx });
+    // 批次立法（宿主评审 M1）：meta 嵌套层随宿主对象引用共享——一层冻结防工具
+    // 经 getExecContext().meta.x 改写同请求下游工具可见的元数据（浅冻结旁路封堵）
+    if (embedded.meta && !Object.isFrozen(embedded.meta)) Object.freeze(embedded.meta);
+    return { ...(ctx as Record<string, unknown>), [EXEC_CONTEXT_INPUT_KEY]: embedded };
   }
 
   /**
@@ -911,6 +918,7 @@ class DecisionRuntime {
 
     // ExecContext 重建立：ALS 不跨 TSFN 边界，从嵌入输入的保留键恢复（见 evaluate）
     const rawInput = (request.input ?? {}) as Record<string, unknown>;
+    if (process.env.DBG_166) console.log("[DBG handle] node:", node.id, "inputKeys:", Object.keys(rawInput).join(","), "ctxJSON:", JSON.stringify(rawInput[EXEC_CONTEXT_INPUT_KEY]));
     const execCtx = rawInput[EXEC_CONTEXT_INPUT_KEY] as ExecContext | undefined;
 
     const context: Record<string, unknown> = {
@@ -992,13 +1000,21 @@ class DecisionRuntime {
       const auditJournal = execCtx?.journalId ? auditJournalRegistry.get(execCtx.journalId) : undefined;
       if (auditJournal) auditJournal.push(...traces);
 
-      if (passThrough && typeof request.input === "object" && request.input !== null) {
+      if (typeof request.input === "object" && request.input !== null) {
         const input = request.input as Record<string, unknown>;
-        for (const key of Object.keys(input)) {
-          if (key !== "$nodes") {
-            // EXEC_CONTEXT_INPUT_KEY 随 passThrough 向下传播（下游 act 节点依赖），
-            // 最终结论在 evaluateAsync 出口统一剥离
-            results[key] = input[key];
+        // 批次立法（宿主裁定 2026-11-16）：执行环境上下文对【所有】自定义节点可达，
+        // 与 passThrough（仅约束当前节点输出是否透传到下游）正交——保留键无条件传播。
+        // 旧行为（仅 passThrough=true 时传播）= passThrough 链衰减：中间节点 UNSET
+        // 即截断租户/meta，下游 UDF 键降级为无租户空间（跨租户串染）。
+        // 最终结论在 evaluateAsync 出口统一剥离。
+        if (input[EXEC_CONTEXT_INPUT_KEY] !== undefined) {
+          results[EXEC_CONTEXT_INPUT_KEY] = input[EXEC_CONTEXT_INPUT_KEY];
+        }
+        if (passThrough) {
+          for (const key of Object.keys(input)) {
+            if (key !== "$nodes" && key !== "EXEC_CONTEXT_INPUT_KEY") {
+              results[key] = input[key];
+            }
           }
         }
       }
@@ -1025,6 +1041,10 @@ class DecisionRuntime {
       return traces.length > 0 ? { output: results, traceData: { udf: traces } } : { output: results };
     };
 
+    if (process.env.DBG_166) console.log("[DBG als-rebuild]", node.id, JSON.stringify(execCtx), "| mark:", (execCtx.meta as { __dbg_ref?: string } | undefined)?.__dbg_ref);
+    if (execCtx.meta && typeof execCtx.meta === "object" && !Array.isArray(execCtx.meta)) {
+      (execCtx.meta as Record<string, unknown>).__dbg_ref = "als";
+    }
     return execCtx ? runWithExecContext(execCtx, execute) : execute();
   }
 
