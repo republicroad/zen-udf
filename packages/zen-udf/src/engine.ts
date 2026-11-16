@@ -10,7 +10,7 @@ import { evaluateExpressionSync, ZenDecisionContent, ZenEngine } from "@republic
 
 import type { CircuitBreaker } from "./breaker.ts";
 import { type CacheMetricsSnapshot, DecisionCache } from "./decision-cache.ts";
-import { EXEC_CONTEXT_INPUT_KEY, type ExecContext, getExecContext, runWithExecContext } from "./exec-context.ts";
+import { type ExecContext, getExecContext, runWithExecContext } from "./exec-context.ts";
 import { asTypedValueEnvelope, type TypedValueEnvelope } from "./instances/envelope.ts";
 import { buildInstanceSchedule, type ExprAstItem, extractInstanceRefs } from "./instances/plan.ts";
 import { substituteInstanceRefs } from "./instances/substitute.ts";
@@ -422,25 +422,10 @@ class DecisionRuntime {
   }
 
   /**
-   * ALS 不跨 zen-engine 的 Rust worker → TSFN 回调边界存活（探针实证），
-   * 把当前 ExecContext 以保留键嵌入输入对象，由 handleCustomNode 提取后
-   * 重建立上下文。仅对象输入可承载；其余形态按无上下文执行（UDF 内 fail closed）。
-   * 嵌入的是冻结副本：防图表达式篡改调用方持有的共享 ctx 对象（加固 §5）。
+   * 批次 166（宿主裁定）：上下文传递已切原生 execution_context 通道
+   * （fork 2.1.9+enriched 内核原生支持，CustomNodeRequest.execution_context），
+   * 保留键嵌入 input 的变通整体退役——passThrough 衰减结构性根治。
    */
-  private static enrichInputWithExecContext(ctx: unknown): unknown {
-    if (ctx === null || typeof ctx !== "object" || Array.isArray(ctx)) {
-      return ctx;
-    }
-    const execCtx = getExecContext();
-    if (!execCtx) {
-      return ctx;
-    }
-    const embedded = Object.freeze({ ...execCtx });
-    // 批次立法（宿主评审 M1）：meta 嵌套层随宿主对象引用共享——一层冻结防工具
-    // 经 getExecContext().meta.x 改写同请求下游工具可见的元数据（浅冻结旁路封堵）
-    if (embedded.meta && !Object.isFrozen(embedded.meta)) Object.freeze(embedded.meta);
-    return { ...(ctx as Record<string, unknown>), [EXEC_CONTEXT_INPUT_KEY]: embedded };
-  }
 
   /**
    * observed 收集（Y2 免 trace 化）：分发器自记账 journal 优先，节点 traceData 作
@@ -566,15 +551,19 @@ class DecisionRuntime {
           ? ({ ...(options as Record<string, unknown> | undefined), trace: true } as ZenEvaluateOptions)
           : (options as ZenEvaluateOptions | null | undefined);
       try {
-        const evaluateCall = async () =>
-          decision.evaluate(DecisionRuntime.enrichInputWithExecContext(ctx), evalOpts) as Promise<EvaluateResponse>;
-        const result: EvaluateResponse = journalId
-          ? await runWithExecContext({ ...(execCtx as ExecContext), journalId }, evaluateCall)
-          : await evaluateCall();
-        // 剥离输出中的上下文保留键（AA1：键仅用于跨 TSFN 传播，不进最终结论）
-        if (result.result !== null && typeof result.result === "object" && !Array.isArray(result.result)) {
-          delete (result.result as Record<string, unknown>)[EXEC_CONTEXT_INPUT_KEY];
-        }
+        // 批次 166：ExecContext 经原生 execution_context 通道传递（不再嵌入 input）。
+        // journalId 必须注入**下发的上下文本体**（不只是近侧 ALS 区）——旧保留键
+        // 嵌入读的是 runWithExecContext 增强后的 getExecContext()，切原生通道后
+        // 内核收到的是第三参本尊：漏注入 = handleCustomNode 侧 journal 注册表
+        // 永远 miss（Y2 审计 observed/replay/shadow 全断）。
+        const outboundCtx = journalId
+          ? ({ ...(execCtx as ExecContext), journalId } as ExecContext)
+          : execCtx;
+        const result: EvaluateResponse = (await decision.evaluate(
+          ctx,
+          evalOpts,
+          outboundCtx,
+        )) as EvaluateResponse;
         this.emitAudit(execCtx, key, rev, ctx, result, journal);
         // Y6：UdfTrace 作为 span events（与审计同一并集来源，不再依赖强制 trace）
         if (span) {
@@ -642,23 +631,12 @@ class DecisionRuntime {
       observeMemoId: shadowMemoId,
     };
     const shadowDecision = this.getDecision(key, revs.shadow);
-    const enrichedShadowInput = {
-      ...((input ?? {}) as Record<string, unknown>),
-      [EXEC_CONTEXT_INPUT_KEY]: Object.freeze({ ...shadowExec }),
-    };
+    // 批次 166：影子侧上下文经原生 execution_context 通道传递（不再嵌入 input）
     const shadowResult = (await runWithExecContext(shadowExec as ExecContext, () =>
-      shadowDecision.evaluate(enrichedShadowInput, options as ZenEvaluateOptions | null | undefined),
+      shadowDecision.evaluate(input, options as ZenEvaluateOptions | null | undefined, shadowExec),
     ).finally(() => {
       observeMemoRegistry.delete(shadowMemoId);
     })) as EvaluateResponse;
-    // 最终结论剥离上下文保留键
-    if (
-      shadowResult.result !== null &&
-      typeof shadowResult.result === "object" &&
-      !Array.isArray(shadowResult.result)
-    ) {
-      delete (shadowResult.result as Record<string, unknown>)[EXEC_CONTEXT_INPUT_KEY];
-    }
 
     const differences: ShadowDiffEntry[] = [];
     collectDiffs(prod.result, shadowResult.result, "", differences);
@@ -916,9 +894,12 @@ class DecisionRuntime {
     const passThrough = (node.config?.["passThrough"] as boolean | null) ?? null;
     const meta = (node.config?.[CUSTOM_HANDLER_META] as Record<string, unknown>) ?? {};
 
-    // ExecContext 重建立：ALS 不跨 TSFN 边界，从嵌入输入的保留键恢复（见 evaluate）
+    // ExecContext 重建立：ALS 不跨 TSFN 边界，从原生 execution_context 通道恢复
+    // （批次 166：fork CustomNodeRequest.execution_context——内核经 evaluate 第三参
+    // 穿线至 TSFN；napi getter 惯例 camelCase → JS 属性名 executionContext）
     const rawInput = (request.input ?? {}) as Record<string, unknown>;
-    const execCtx = rawInput[EXEC_CONTEXT_INPUT_KEY] as ExecContext | undefined;
+    const reqRec = request as unknown as Record<string, unknown>;
+    const execCtx = (reqRec["executionContext"] ?? reqRec["execution_context"]) as ExecContext | undefined;
 
     const context: Record<string, unknown> = {
       node_id: node.id,
@@ -999,21 +980,13 @@ class DecisionRuntime {
       const auditJournal = execCtx?.journalId ? auditJournalRegistry.get(execCtx.journalId) : undefined;
       if (auditJournal) auditJournal.push(...traces);
 
-      if (typeof request.input === "object" && request.input !== null) {
+      // 批次 166：保留键无条件传播已随保留键机制退役（上下文改走原生
+      // execution_context 通道）；passThrough 的通用输入拷贝是独立合法行为，保留。
+      if (passThrough && typeof request.input === "object" && request.input !== null) {
         const input = request.input as Record<string, unknown>;
-        // 批次立法（宿主裁定 2026-11-16）：执行环境上下文对【所有】自定义节点可达，
-        // 与 passThrough（仅约束当前节点输出是否透传到下游）正交——保留键无条件传播。
-        // 旧行为（仅 passThrough=true 时传播）= passThrough 链衰减：中间节点 UNSET
-        // 即截断租户/meta，下游 UDF 键降级为无租户空间（跨租户串染）。
-        // 最终结论在 evaluateAsync 出口统一剥离。
-        if (input[EXEC_CONTEXT_INPUT_KEY] !== undefined) {
-          results[EXEC_CONTEXT_INPUT_KEY] = input[EXEC_CONTEXT_INPUT_KEY];
-        }
-        if (passThrough) {
-          for (const key of Object.keys(input)) {
-            if (key !== "$nodes" && key !== "EXEC_CONTEXT_INPUT_KEY") {
-              results[key] = input[key];
-            }
+        for (const key of Object.keys(input)) {
+          if (key !== "$nodes") {
+            results[key] = input[key];
           }
         }
       }
@@ -1040,10 +1013,6 @@ class DecisionRuntime {
       return traces.length > 0 ? { output: results, traceData: { udf: traces } } : { output: results };
     };
 
-    if (process.env.DBG_166) console.log("[DBG als-rebuild]", node.id, JSON.stringify(execCtx), "| mark:", (execCtx.meta as { __dbg_ref?: string } | undefined)?.__dbg_ref);
-    if (execCtx.meta && typeof execCtx.meta === "object" && !Array.isArray(execCtx.meta)) {
-      (execCtx.meta as Record<string, unknown>).__dbg_ref = "als";
-    }
     return execCtx ? runWithExecContext(execCtx, execute) : execute();
   }
 

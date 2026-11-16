@@ -68,11 +68,7 @@ export const runWithExecContext = <T>(ctx: ExecContext, fn: () => Promise<T>): P
   return execStorage.run(ctx, fn);
 };
 
-/**
- * ExecContext 的跨原生边界通道键：zen-engine 的 customNode 回调经 Rust worker →
- * napi TSFN 派发回 JS 主线程，AsyncLocalStorage 不跨该边界存活（探针实证）。
- * DecisionRuntime.evaluate 把当前 ExecContext 以此保留键嵌入输入对象，
- * handleCustomNode 提取后用 runWithExecContext 重建立上下文，并对 passThrough
- * 输出剥离该键。仅对象形态输入支持（数组/原始值输入无法承载）。
- */
-export const EXEC_CONTEXT_INPUT_KEY = "__zen_udf_exec_ctx__";
+// 批次 166：保留键通道（EXEC_CONTEXT_INPUT_KEY，ExecContext 嵌入 input 的
+// 跨 TSFN 载体）已退役——上下文改经 zen fork 原生 execution_context 通道
+// （evaluate 第三参 → CustomNodeRequest.executionContext → handleCustomNode
+// 重建 ALS）。执行上下文与 input 混流不利于规则治理与作用域隔离（宿主裁定）。

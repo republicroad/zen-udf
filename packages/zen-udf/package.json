@@ -23,7 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@republicroad/zen-engine": "2.1.9-beta.3",
+    "@republicroad/zen-engine": "^2.1.10",
     "@sinclair/typebox": "0.34.38"
   },
   "peerDependencies": {

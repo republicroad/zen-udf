@@ -8,7 +8,7 @@ import { DecisionRuntime, getExecContext, runWithExecContext, UdfRegistry } from
  * 可达且带租户/meta——衰减存在则第二跳丢失。
  */
 
-const seen: { tag: string; tenant?: string; metaOk: boolean; metaModel?: string }[] = [];
+const seen: { tag: string; tenant: string | null; metaOk: boolean; metaModel: string | null }[] = [];
 
 function chain_probe() {
   const ctx = getExecContext();
@@ -29,7 +29,7 @@ const chainGraph = () => ({
     {
       id: "c1",
       type: "customNode",
-      name: "第一跳（截断点）",
+      name: "第一跳",
       content: { kind: "UDF", config: { expressions: [{ id: "e1", key: "out1", value: "chain_probe" }] } },
     },
     {
@@ -47,7 +47,7 @@ const chainGraph = () => ({
   ],
 });
 
-describe("批次 166 · ExecContext 链式传播 + meta 存活", () => {
+describe("批次 166 · ExecContext 链式传播 + meta 通道存活", () => {
   test("双 UDF 链：两跳 getExecContext 都可达且带租户/meta", async () => {
     seen.length = 0;
     const registry = new UdfRegistry();
@@ -59,7 +59,11 @@ describe("批次 166 · ExecContext 链式传播 + meta 存活", () => {
       await runtime.evaluateAsync(key, { x: 1 }, undefined, "v1");
     });
     expect(seen.length).toBe(2);
-    expect(seen[0]).toEqual({ tag: "probe", tenant: "t-166", metaOk: true, metaModel: "m-9" });
-    expect(seen[1]).toEqual({ tag: "probe", tenant: "t-166", metaOk: true, metaModel: "m-9" });
+    expect(seen[0].tenant).toBe("t-166");
+    expect(seen[0].metaOk).toBe(true);
+    expect(seen[0].metaModel).toBe("m-9");
+    expect(seen[1].tenant).toBe("t-166");
+    expect(seen[1].metaOk).toBe(true);
+    expect(seen[1].metaModel).toBe("m-9");
   });
 });
