@@ -104,23 +104,6 @@ describe("Y7 决策测试夹具运行器（ADR-014 executor 反转形态）", ()
     expect(failed?.outcome).toBe("assertion-failed");
   });
 
-  test("journal 桩：observe UDF 走回放语义不重执行（效果隔离）", async () => {
-    const runtime = makeRuntime();
-    const report = await runDecisionTests({
-      executor: createRuntimeExecutor(runtime, { key: "jm", model, rev: "v1" }),
-      fixtures: [
-        {
-          name: "observe 走桩",
-          input: { x: 4, flagged: true },
-          asOf: "2026-09-13T00:00:00Z",
-          journal: [{ key: "flag", name: "flag_udf", outcome: { flagged: "FROM_JOURNAL" } }],
-          expect: { mode: "path", path: "flag.flagged", value: "FROM_JOURNAL" },
-        },
-      ],
-    });
-    expect(report.failed).toBe(0);
-  });
-
   test("smoke 语义：无 expect 的夹具 passed = 执行无异常（NamedExample 接入形态）", async () => {
     const runtime = makeRuntime();
     const report = await runDecisionTests({
@@ -257,19 +240,3 @@ describe("createZenExpressionEvaluator：OQ3 ① 定稿——context 平铺，�
   });
 });
 
-describe("fixtures 指纹（1.5.0 回放钉扎）", () => {
-  test("同夹具集指纹稳定；任一夹具变更即漂移", async () => {
-    const run = async (fixtures: Parameters<typeof runDecisionTests>[0]["fixtures"]) =>
-      (
-        await runDecisionTests({
-          executor: createRuntimeExecutor(makeRuntime(), { key: "fp", model, rev: "v1" }),
-          fixtures,
-        })
-      ).fingerprint;
-    const base = [{ name: "a", input: { x: 1, flagged: false } }];
-    const again = await run(base);
-    expect(again).toBe(await run([{ name: "a", input: { x: 1, flagged: false } }]));
-    expect(again).not.toBe(await run([{ name: "a", input: { x: 2, flagged: false } }]));
-    expect(again).toMatch(/^[0-9a-f]{8}$/);
-  });
-});

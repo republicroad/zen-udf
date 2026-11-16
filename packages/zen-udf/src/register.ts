@@ -103,7 +103,7 @@ export interface UdfSchema {
   semantics?: UdfSemantics;
   /** act 语义的幂等声明（Z1）：缺失时 validatePack 产生警告（不阻断），verdict 审计可见 */
   idempotent?: boolean;
-  /** 时间档位（ADR-021 §1.1）：缺省 event；processing 在 replay 路径按宿主 ReplayPolicy 强制（§1.2） */
+  /** 时间档位（ADR-021 §1.1）：缺省 event——事件时间语义（宿主经 meta.eventTime 供给锚点）；processing = 处理时间语义 */
   temporal?: "event" | "processing";
   /** 有状态声明（ADR-021 §1.3）：true = 禁自动重试；幂等键 = ExecContext.requestId 单源贯穿 */
   stateful?: boolean;
@@ -558,13 +558,6 @@ class UdfRegistry {
 
   getPackMeta(namespace: string): UdfPackMeta | undefined {
     return this.packMetas.get(namespace);
-  }
-
-  /** 回放钉扎（1.5.0）：函数所属 pack 的 meta.version——审计 observed 与回放校验的版本源；未声明版本的 pack 返回 undefined（不参与钉扎） */
-  udfPackVersion(name: string): string | undefined {
-    const fn = this.functions.get(name);
-    const ns = (fn as { schema?: { namespace?: string } } | undefined)?.schema?.namespace;
-    return ns ? this.packMetas.get(ns)?.version : undefined;
   }
 
   /** 声明式出口清单（1.6.0）：函数所属 pack 的声明域白名单——宿主 EgressGuard 交叉校验的数据源；无声明 pack 返回 undefined（策略全权归端口） */

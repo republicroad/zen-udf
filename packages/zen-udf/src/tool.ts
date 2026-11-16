@@ -30,7 +30,7 @@ export interface UdfToolDef<I extends TSchema, O extends TSchema> {
   description: string;
   /** 语义三元（Y1）：query 纯读 / observe 观测累积 / act 处置效果（回放与影子据此分支） */
   semantics?: UdfSemantics;
-  /** 时间档位（ADR-021 §1.1）：缺省 event；processing 在 replay 路径按宿主 ReplayPolicy 强制 */
+  /** 时间档位（ADR-021 §1.1）：缺省 event——事件时间语义（宿主经 meta.eventTime 供给锚点）；processing = 处理时间语义 */
   temporal?: UdfTemporal;
   /** 有状态声明（ADR-021 §1.3）：true = 禁自动重试（重试双计危害；幂等键 = ExecContext.requestId 单源贯穿） */
   stateful?: boolean;

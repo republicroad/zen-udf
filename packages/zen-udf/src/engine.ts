@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   ZenDecision,
   ZenEngineHandlerRequest,
@@ -22,103 +21,24 @@ import { getPorts } from "./runtime-ports.ts";
 
 const CUSTOM_HANDLER_META = "__meta__";
 
-/**
- * 请求内 observe memo 注册表（批次 80，fact-once 第一步）：键=evaluateAsync 创建的
- * opaque memoId（字符串跨冻结副本/TSFN 克隆保真——journalId 同款；初版按 ALS 上下文
- * 对象身份查 WeakMap，被跨节点克隆证伪：每节点一个克隆键=per-node memo 跨节点失效），
- * 值=同参 observe 调用的 deferred 缓存。生命周期=单次 evaluate：evaluateAsync finally
- * 显式 delete（journalId 清理同款）——无跨请求保留、无泄漏；影子路径独立 memoId 成帧，
- * 影子/生产 memo 天然隔离。
- */
-interface ObserveMemoDeferred {
-  promise: Promise<unknown>;
-  resolve: (v: unknown) => void;
-}
-const observeMemoRegistry = new Map<string, Map<string, ObserveMemoDeferred>>();
-
-/** kwargs 规范化序列化（键排序递归，顺序无关）——observe memo 归一键用 */
-function stableStringifyValue(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(stableStringifyValue);
-  if (v !== null && typeof v === "object") {
-    return Object.fromEntries(
-      Object.entries(v as Record<string, unknown>)
-        .map(([k, x]) => [k, stableStringifyValue(x)] as [string, unknown])
-        .sort((a, b) => (a[0] < b[0] ? -1 : 1)),
-    );
-  }
-  return v;
-}
-const stableStringify = (v: unknown): string => JSON.stringify(stableStringifyValue(v));
-
 /** UDF 函数粒度执行轨迹（执行规范 §6.6）：经 customHandler 的 traceData 下发 */
 export interface UdfTrace {
   /** 表达式实例 key（customNode 输出字段） */
   key: string;
   name: string;
   micros: number;
-  /** 违例/异常码：INVALID_PARAM / UDF_TIMEOUT / INVALID_RESULT / UDF_NOT_FOUND / UDF_ERROR / REPLAYED / REPLAY_JOURNAL_MISS / CIRCUIT_OPEN */
+  /** 违例/异常码：INVALID_PARAM / UDF_TIMEOUT / INVALID_RESULT / UDF_NOT_FOUND / UDF_ERROR / CIRCUIT_OPEN */
   code?: string;
   issues?: string[];
   /** 算子语义（Y1） */
   semantics?: UdfSemantics;
-  /** 回放钉扎（1.5.0）：调用时函数所属 pack 的 meta.version（注册期声明；未声明不记） */
-  packVersion?: string;
   /** 保真披露（ADR-021 §1.1）：调用时函数声明的保真档（ε 口径的结果侧可见性） */
   fidelity?: string;
-  /** UDF 返回值快照（Y2 审计 journal 依据；错误路径为结构化错误对象） */
+  /** UDF 返回值快照（traceData 调试面；错误路径为结构化错误对象） */
   outcome?: unknown;
   /** act 语义幂等声明（Z1） */
   idempotent?: boolean;
 }
-
-/**
- * 审计 journal 注册表（Y2 免 trace 化）：evaluateAsync 为本次执行登记 accumulator，
- * handleCustomNode（全部 UDF 调用的必经分发点）经冻结副本携带的 journalId 写入。
- * 冻结副本只透传 opaque id——journal 本体不可被图表达式触及（§5 篡改加固性质保持）。
- * 审计/OTel 由此不再依赖上游 traceData，生产高频面无需强制开启引擎 trace。
- */
-const auditJournalRegistry = new Map<string, UdfTrace[]>();
-
-const newAuditJournalId = (): string =>
-  globalThis.crypto?.randomUUID?.() ?? `journal-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-/** 字段级差异（AA1 影子评估 diff 报告） */
-export interface ShadowDiffEntry {
-  path: string;
-  prod: unknown;
-  shadow: unknown;
-}
-
-/** 影子评估结果：生产/影子双侧结论 + 等价性 + 字段级差异 */
-export interface ShadowEvaluation {
-  prod: unknown;
-  shadow: unknown;
-  equivalent: boolean;
-  differences: ShadowDiffEntry[];
-  prodPerformance?: string;
-  shadowPerformance?: string;
-}
-
-/** 字段级深遍历 diff（对象递归；标量/数组/类型不一致记单条差异） */
-const collectDiffs = (a: unknown, b: unknown, path: string, out: ShadowDiffEntry[]): ShadowDiffEntry[] => {
-  if (a === b) return out;
-  const bothObjects =
-    a !== null && b !== null && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b);
-  if (bothObjects) {
-    const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
-    for (const k of keys) {
-      collectDiffs(
-        (a as Record<string, unknown>)[k],
-        (b as Record<string, unknown>)[k],
-        path ? path + "." + k : k,
-        out,
-      );
-    }
-    return out;
-  }
-  out.push({ path: path || "$", prod: a, shadow: b });
-  return out;
-};
 
 interface EvaluateResponse {
   performance: string;
@@ -168,8 +88,6 @@ export interface DecisionRuntimeOptions extends Omit<ZenEngineOptions, "customHa
   resultValidation?: "off" | "warn" | "enforce";
   /** UDF 错误消息脱敏器（执行规范 §6.7）；缺省内置规则（路径/敏感环境值替换为占位） */
   sanitizer?: (message: string) => string;
-  /** 决策审计事件 sink（Y2）：evaluate 完成后回调；持久化属宿主。配置后 evaluate 内部强制开启 trace */
-  onDecision?: (event: DecisionAuditEvent) => void;
   /** OpenTelemetry 桥（Y6）：置 true 且宿主安装 @opentelemetry/api 时，evaluate 产生根 span（UdfTrace 作为事件） */
   otel?: boolean;
   /** 统一观测 sink（BB5）：UDF/熔断/并发闸事件流；缺省 undefined = 不出观测事件 */
@@ -186,51 +104,6 @@ export type MetricsEvent =
   | { kind: "udf"; name: string; partition?: string; micros: number; code?: string; idempotent?: boolean }
   | { kind: "circuit"; key: string; allowed: false }
   | { kind: "limiter"; key: string; waitMicros: number };
-
-export interface DecisionObservedCall {
-  key: string;
-  name: string;
-  semantics: UdfSemantics;
-  /** 返回值快照（含结构化错误对象——journal 回放依据；act 语义 MUST NOT 携带入参载荷，CONTRACT §5） */
-  outcome: unknown;
-  micros: number;
-  /** act 语义幂等声明（Z1，verdict 审计可见） */
-  idempotent?: boolean;
-  /** 回放钉扎（1.5.0）：调用时函数所属 pack 的 meta.version——pack 升级后回放漂移的可检出来源 */
-  packVersion?: string;
-  /** 保真披露（ADR-021 §1.1）：审计侧 ε 口径可见性 */
-  fidelity?: string;
-  /** 审计哈希链（1.0：Trust Chain 验证记录完整性）：sha256(前链哈希+本条稳定序列化)，链种子=inputHash */
-  hash?: string;
-}
-
-/**
- * 决策审计事件（Y2）：决策完成时经 onDecision 下发，持久化属宿主。
- * inputHash = sha256(JSON.stringify(input))——数据最小化；原文存储属宿主策略。
- * observed 含 query/observe/act 全部 UDF 返回值快照，是 Y3 回放 journal 的来源。
- */
-export interface DecisionAuditEvent {
-  decisionId: string;
-  /** 分区隔离键（批次 167：经 partitionKey 提取器从宿主上下文派生；缺省 undefined = 无分区形态） */
-  partition?: string;
-  key: string;
-  rev: string;
-  inputHash: string;
-  /** 完整决策结论（宿主裁决 D11） */
-  output: unknown;
-  /** 事件时间（ExecContext.eventTime；缺省 = 处理时间） */
-  asOf?: string;
-  processingTime: string;
-  /** 宿主元数据透传（数据面原样快照——replay 重建上下文的 meta 来源；引擎不解读） */
-  meta?: Record<string, unknown>;
-  source: "live" | "replay";
-  observed: DecisionObservedCall[];
-  performance?: string;
-  /** journal 格式版本（1.0 契约；宿主按此 upcast 历史留存记录） */
-  journalVersion: number;
-  /** 哈希链终值（1.0：逐条 hash 链 + inputHash 种子）——Trust Chain 验证记录完整性 */
-  journalDigest?: string;
-}
 
 interface GraphNode {
   type?: string;
@@ -298,8 +171,6 @@ class DecisionRuntime {
   resultValidation: "off" | "warn" | "enforce";
   /** 错误消息脱敏器 */
   sanitizer: (message: string) => string;
-  /** 决策审计事件 sink（缺省 undefined = 不出审计事件） */
-  onDecision?: (event: DecisionAuditEvent) => void;
   /** OTel 桥开关（缺省 false） */
   otel: boolean;
   /** 统一观测 sink（缺省 undefined = 不出观测事件） */
@@ -318,7 +189,6 @@ class DecisionRuntime {
     this.requirePartition = options.requirePartition ?? false;
     this.resultValidation = options.resultValidation ?? "warn";
     this.sanitizer = options.sanitizer ?? sanitizeErrorDefault;
-    this.onDecision = options.onDecision;
     this.otel = options.otel ?? false;
     this.metrics = options.metrics;
     // L7（ADR-008）：宿主 customHandler 与内置 UDF 分发可组合——宿主 handler
@@ -452,102 +322,6 @@ class DecisionRuntime {
    * 保留键嵌入 input 的变通整体退役——passThrough 衰减结构性根治。
    */
 
-  /**
-   * observed 收集（Y2 免 trace 化）：分发器自记账 journal 优先，节点 traceData 作
-   * 并集兜底——宿主 customHandler 自带 traceData 的节点只出现在后者。去重键
-   * key+name+micros（同一调用在两来源中为同值；跨 wasm 边界为克隆故按值去重）。
-   */
-  private collectObservedTraces(journal: UdfTrace[] | undefined, result: EvaluateResponse): UdfTrace[] {
-    const merged: UdfTrace[] = [];
-    const seen = new Set<string>();
-    const add = (t: UdfTrace): void => {
-      const dedupe = `${t.key}::${t.name}::${t.micros}`;
-      if (seen.has(dedupe)) return;
-      seen.add(dedupe);
-      merged.push(t);
-    };
-    for (const t of journal ?? []) add(t);
-    const trace = result.trace as
-      | Record<string, { traceData?: { udf?: Array<UdfTrace & { outcome?: unknown; semantics?: UdfSemantics }> } }>
-      | undefined;
-    for (const nodeTrace of Object.values(trace ?? {})) {
-      for (const t of nodeTrace?.traceData?.udf ?? []) add(t);
-    }
-    return merged;
-  }
-
-  /**
-   * 审计事件（Y2）：observed 来源=分发器自记账 journal 并集节点 traceData
-   * （journal 通道不可用时回退强制 trace，见 evaluateAsync）。配置后 evaluate
-   * 内部不再强制开启引擎 trace——生产高频面审计成本从全量 traceData 降到
-   * 仅 UDF 快照。sink 异常不中断决策（仅 console.error）。
-   */
-  private emitAudit(
-    execCtx: ExecContext | undefined,
-    key: string,
-    rev: string | undefined,
-    rawInput: unknown,
-    result: EvaluateResponse,
-    journal?: UdfTrace[],
-  ): void {
-    if (!this.onDecision) return;
-    try {
-      const inputHash = createHash("sha256").update(JSON.stringify(rawInput)).digest("hex");
-      // 审计哈希链（1.0）：种子 = inputHash，逐条 sha256(前链哈希 + 稳定序列化)——
-      // 宿主/Trust Chain 重算链条即可验证记录未被篡改（验证计算 + 验证记录完整性）
-      const observed: DecisionObservedCall[] = [];
-      let chain = inputHash;
-      for (const t of this.collectObservedTraces(journal, result)) {
-        const entry: DecisionObservedCall = {
-          key: t.key,
-          name: t.name,
-          semantics: t.semantics ?? "query",
-          idempotent: t.idempotent,
-          outcome: t.outcome,
-          micros: t.micros,
-          packVersion: this.registry.udfPackVersion(t.name),
-        };
-        entry.hash = createHash("sha256")
-          .update(
-            chain +
-              JSON.stringify({
-                key: entry.key,
-                name: entry.name,
-                semantics: entry.semantics,
-                outcome: entry.outcome,
-                micros: entry.micros,
-                packVersion: entry.packVersion,
-              }),
-          )
-          .digest("hex");
-        chain = entry.hash;
-        observed.push(entry);
-      }
-      const event: DecisionAuditEvent = {
-        decisionId: execCtx?.decisionId ?? globalThis.crypto?.randomUUID?.() ?? `dec-${Date.now()}-${Math.random()}`,
-        partition: this.partitionOf(execCtx),
-        key,
-        rev: rev ?? "latest",
-        inputHash,
-        output: result.result,
-        asOf: execCtx?.eventTime,
-        processingTime: new Date().toISOString(),
-        meta: execCtx?.meta,
-        source: execCtx?.replay ? "replay" : "live",
-        observed,
-        performance: result.performance,
-        journalVersion: 1,
-        journalDigest: chain === inputHash ? undefined : chain,
-      };
-      this.onDecision(event);
-    } catch (sinkError) {
-      console.error(
-        "[zen-udf] onDecision sink failed:",
-        sinkError instanceof Error ? sinkError.message : String(sinkError),
-      );
-    }
-  }
-
   evaluate(key: string, ctx: unknown, options?: unknown, rev?: string): Promise<EvaluateResponse> {
     return this.evaluateAsync(key, ctx, options, rev);
   }
@@ -560,46 +334,27 @@ class DecisionRuntime {
       assertJsonSafeInput(ctx);
       const decision = this.getDecision(key, rev);
       const execCtx = getExecContext();
-      // Y2 审计免 trace 化：有执行上下文时 observed 经分发器自记账（handleCustomNode
-      // 是全部 UDF 调用的必经点；journal 经 journalId 注册表跨冻结副本传递），不再
-      // 强制上游 trace。上下文缺位的遗留调用面（CLI/豁免直调）journal 通道不可用，
-      // 保留旧行为：强制 trace + traceData 收集。
-      const needsAuditSink = this.onDecision != null || this.otel;
-      const journalId = needsAuditSink && execCtx ? newAuditJournalId() : undefined;
-      const journal = journalId ? ([] as UdfTrace[]) : undefined;
-      if (journalId && journal) auditJournalRegistry.set(journalId, journal);
-      // 批次 80 修订（用户裁定）：observe memo 帧撤出生产热路径——memo 仅存在于影子帧
-      // （evaluateShadow 的 shadowMemoId，低频试跑场景）。生产请求 observeMemoId 缺位，
-      // executeExpr 闸单次 undefined 检查即旁路（纳秒级）——热路径零 registry 参与。
-      const evalOpts =
-        needsAuditSink && !journal
-          ? ({ ...(options as Record<string, unknown> | undefined), trace: true } as ZenEvaluateOptions)
-          : (options as ZenEvaluateOptions | null | undefined);
-      try {
-        // 批次 166：ExecContext 经原生 execution_context 通道传递（不再嵌入 input）。
-        // journalId 必须注入**下发的上下文本体**（不只是近侧 ALS 区）——旧保留键
-        // 嵌入读的是 runWithExecContext 增强后的 getExecContext()，切原生通道后
-        // 内核收到的是第三参本尊：漏注入 = handleCustomNode 侧 journal 注册表
-        // 永远 miss（Y2 审计 observed/replay/shadow 全断）。
-        const outboundCtx = journalId
-          ? ({ ...(execCtx as ExecContext), journalId } as ExecContext)
-          : execCtx;
-        const result: EvaluateResponse = (await decision.evaluate(
-          ctx,
-          evalOpts,
-          outboundCtx,
-        )) as EvaluateResponse;
-        this.emitAudit(execCtx, key, rev, ctx, result, journal);
-        // Y6：UdfTrace 作为 span events（与审计同一并集来源，不再依赖强制 trace）
-        if (span) {
-          for (const t of this.collectObservedTraces(journal, result)) {
+      // OTel 桥（Y6）：宿主 otel:true 时强制上游 trace——span events 来源 =
+      // 节点 traceData（批次 170：journal 通道随审计机制退役，traceData 为唯一来源）
+      const evalOpts = this.otel
+        ? ({ ...(options as Record<string, unknown> | undefined), trace: true } as ZenEvaluateOptions)
+        : (options as ZenEvaluateOptions | null | undefined);
+      const result: EvaluateResponse = (await decision.evaluate(
+        ctx,
+        evalOpts,
+        execCtx,
+      )) as EvaluateResponse;
+      if (span) {
+        const trace = result.trace as
+          | Record<string, { traceData?: { udf?: Array<UdfTrace & { outcome?: unknown; semantics?: UdfSemantics }> } }>
+          | undefined;
+        for (const nodeTrace of Object.values(trace ?? {})) {
+          for (const t of nodeTrace?.traceData?.udf ?? []) {
             span.addEvent("zen-udf.udf", { key: t.key, name: t.name, micros: t.micros, code: t.code ?? "ok" });
           }
         }
-        return result;
-      } finally {
-        if (journalId) auditJournalRegistry.delete(journalId);
       }
+      return result;
     };
     if (this.otel) {
       return withOtelSpan(
@@ -627,87 +382,6 @@ class DecisionRuntime {
           return { ok: false as const, error: e instanceof Error ? e.message : String(e) };
         }
       }),
-    );
-  }
-
-  /**
-   * 影子评估（AA1）：生产 rev 正常执行（含审计），影子 rev 并行重演——
-   * act 类影子侧不执行（intent 占位，不双次处置，宿主裁决 D15 推荐）；影子侧不产生审计事件（off-path）。
-   * 用于模型发布前的灰度对比：不一致率达标后切流。
-   */
-  async evaluateShadow(
-    key: string,
-    revs: { prod: string; shadow: string },
-    input: unknown,
-    options?: ZenEvaluateOptions,
-  ): Promise<ShadowEvaluation> {
-    this.requirePartitionContext();
-    const base = getExecContext();
-    const prod = await this.evaluateAsync(key, input, options, revs.prod);
-
-    // 影子侧独立 observe memo 帧（批次 80）：独立 memoId=影子/生产 memo 天然隔离，
-    // 跨节点（TSFN 克隆）经 id 命中同一帧；评估完成即清理。
-    // 批次 167：分区经 partitionKey 提取器从继承的 meta 派生（影子腿继承宿主
-    // 数据面）——不再注入 tenant 段（typed 控制面无应用域概念）。
-    const shadowMemoId = newAuditJournalId();
-    observeMemoRegistry.set(shadowMemoId, new Map());
-    const shadowExec: ExecContext = {
-      ...(base ?? {}),
-      shadow: { prodRev: revs.prod },
-      observeMemoId: shadowMemoId,
-    };
-    const shadowDecision = this.getDecision(key, revs.shadow);
-    // 批次 166：影子侧上下文经原生 execution_context 通道传递（不再嵌入 input）
-    const shadowResult = (await runWithExecContext(shadowExec, () =>
-      shadowDecision.evaluate(input, options as ZenEvaluateOptions | null | undefined, shadowExec),
-    ).finally(() => {
-      observeMemoRegistry.delete(shadowMemoId);
-    })) as EvaluateResponse;
-
-    const differences: ShadowDiffEntry[] = [];
-    collectDiffs(prod.result, shadowResult.result, "", differences);
-    return {
-      prod: prod.result,
-      shadow: shadowResult.result,
-      equivalent: differences.length === 0,
-      differences,
-      prodPerformance: prod.performance,
-      shadowPerformance: shadowResult.performance,
-    };
-  }
-
-  /**
-   * 确定性回放（Y3）：从审计事件构造 replay 上下文重演决策。
-   * - observe/act：不重执行，读 journal 中钉住的当时返回值
-   * - query：以 asOf 为时钟正常执行
-   * - 输入校验：sha256(input) 必须匹配审计 inputHash，否则抛错（trust 语义）
-   * 回放本身也会产生一条 source: 'replay' 的审计事件。
-   */
-  async evaluateReplay(
-    audit: DecisionAuditEvent,
-    input: unknown,
-    options?: ZenEvaluateOptions,
-  ): Promise<EvaluateResponse> {
-    const inputHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
-    if (inputHash !== audit.inputHash) {
-      throw new Error(
-        `[zen-udf] replay input hash mismatch — supplied input (\`${inputHash.slice(0, 12)}\`) does not match the audited decision (\`${audit.inputHash.slice(0, 12)}\`)`,
-      );
-    }
-    const execCtx: ExecContext = {
-      // 批次 167：分区经宿主 partitionKey 提取器从 meta 派生（replay 重建携带
-      // 审计事件透传的数据面）；机制字段（decisionId/eventTime/replay）为控制面。
-      meta: audit.meta,
-      decisionId: audit.decisionId,
-      eventTime: audit.asOf,
-      replay: {
-        decisionId: audit.decisionId,
-        asOf: audit.asOf ?? audit.processingTime,
-        journal: audit.observed.map((o) => ({ key: o.key, name: o.name, outcome: o.outcome })),
-      },
-    };
-    return runWithExecContext(execCtx, () =>
-      this.evaluateAsync(audit.key, input, options, audit.rev === "latest" ? undefined : audit.rev),
     );
   }
 
@@ -1002,11 +676,6 @@ class DecisionRuntime {
         }
       }
 
-      // Y2 免 trace 化：同一份轨迹自记账进本次执行的审计 journal（journalId 注册表；
-      // traceData 仍随 handler 响应交给引擎透传——调试面不受影响）
-      const auditJournal = execCtx?.journalId ? auditJournalRegistry.get(execCtx.journalId) : undefined;
-      if (auditJournal) auditJournal.push(...traces);
-
       // 批次 166：保留键无条件传播已随保留键机制退役（上下文改走原生
       // execution_context 通道）；passThrough 的通用输入拷贝是独立合法行为，保留。
       if (passThrough && typeof request.input === "object" && request.input !== null) {
@@ -1052,9 +721,6 @@ class DecisionRuntime {
     evalContext?: unknown,
   ): Promise<unknown> {
     let breakerKey: string | null = null;
-    // 批次 80：observe memo 挂起槽（单飞 deferred）——gate 时同步占位，并发同参调用
-    // await 同一 promise（同层 Promise.all 并行竞态防护）；所有出口路径必须 resolve
-    let memoPend: ObserveMemoDeferred | null = null;
     try {
       const exprId = execExpr.id;
       const exprAst = execExpr.value;
@@ -1107,99 +773,6 @@ class DecisionRuntime {
       const stateful = fSchema?.stateful as boolean | undefined;
       const idempotent = fSchema?.idempotent as boolean | undefined;
 
-      // AA1 影子评估：act 类影子侧不执行（返回 intent 占位，绝不双次处置）；observe/query 照常
-      const shadowMark = getExecContext()?.shadow;
-      if (shadowMark && semantics === "act") {
-        const intentOutcome = { intent: true, skipped: "shadow", name: funcName };
-        traces.push({ key: execExpr.key, name: funcName, micros: 0, semantics, outcome: intentOutcome });
-        return intentOutcome;
-      }
-
-      // Y3 回放模式：observe/act 不重执行——从 ExecContext.replay.journal 读回当时返回值；
-      // journal 缺失 fail closed（REPLAY_JOURNAL_MISS），query 类正常执行（时钟用 asOf）
-      const replayCtx = getExecContext()?.replay;
-      if (replayCtx && semantics !== "query") {
-        const entry = replayCtx.journal.find((j) => j.key === execExpr.key && j.name === funcName);
-        if (!entry) {
-          const missOutcome = {
-            error: { code: "REPLAY_JOURNAL_MISS", issues: [`no journaled outcome for ${funcName}`] },
-          };
-          traces.push({
-            key: execExpr.key,
-            name: funcName,
-            micros: 0,
-            code: "REPLAY_JOURNAL_MISS",
-            semantics,
-            outcome: missOutcome,
-          });
-          return missOutcome;
-        }
-        traces.push({
-          key: execExpr.key,
-          name: funcName,
-          micros: 0,
-          code: "REPLAYED",
-          semantics,
-          idempotent,
-          outcome: entry.outcome,
-        });
-        // 回放钉扎（1.5.0）：journal 记录的 pack 版本 ≠ 当前注册表 = 函数已升级，
-        // 回放确定性前提被破坏——fail visible（与 REPLAY_JOURNAL_MISS 同款逐条结构化错误；
-        // 旧审计无 packVersion 不参与钉扎，存量回放行为不变）
-        const currentPin = this.registry.udfPackVersion(funcName);
-        if (entry.packVersion && currentPin && entry.packVersion !== currentPin) {
-          const pinOutcome = {
-            error: {
-              code: "REPLAY_PIN_MISMATCH",
-              issues: [
-                `function ${funcName} was ${entry.packVersion} at audit time, registry now has ${currentPin} — replay determinism requires the audited pack`,
-              ],
-            },
-          };
-          traces.push({
-            key: execExpr.key,
-            name: funcName,
-            micros: 0,
-            code: "REPLAY_PIN_MISMATCH",
-            semantics,
-            outcome: pinOutcome,
-          });
-          return pinOutcome;
-        }
-        return entry.outcome;
-      }
-
-      // ADR-021 §1.2 replay 强制：processing 时间档工具在 replay 路径按宿主
-      // ReplayPolicy 执行（observe/act 走 journal 读回不重执行无此险；query 重执行受检。
-      // 与 1.5.0 回放钉扎同通道——journal/observed 携 packVersion，本处携时间档位强制）。
-      // strict=RATE_NO_EVENT_TIME fail visible；degraded=处理时间回退 + TEMPORAL_FALLBACK 标注。
-      if (replayCtx && temporal === "processing") {
-        if ((getPorts()?.replayPolicy ?? "degraded") === "strict") {
-          const noEventTimeOutcome = {
-            error: {
-              code: "RATE_NO_EVENT_TIME",
-              message: `tool ${funcName} declares temporal: 'processing' and cannot serve replay.asOf — supply an event-time implementation or set ports.replayPolicy (ADR-021 §1.2)`,
-            },
-          };
-          traces.push({
-            key: execExpr.key,
-            name: funcName,
-            micros: 0,
-            code: "RATE_NO_EVENT_TIME",
-            semantics,
-            outcome: noEventTimeOutcome,
-          });
-          return noEventTimeOutcome;
-        }
-        traces.push({
-          key: execExpr.key,
-          name: funcName,
-          micros: 0,
-          code: "TEMPORAL_FALLBACK",
-          semantics,
-          outcome: { temporalFallback: true, name: funcName },
-        });
-      }
       if (fSchema) {
         let operatorKwargs: Record<string, unknown>;
         if (namedArgs) {
@@ -1267,40 +840,6 @@ class DecisionRuntime {
           }
 
           operatorKwargs = this.registry.funcBindParams(funcName, args);
-        }
-        // AA1 补（批次 80 修订）：observe memo 仅影子帧持有（evaluateShadow 的
-        // shadowMemoId——低频试跑场景）；生产请求 memoFrameId 缺位即旁路（热路径
-        // 零 registry 参与，用户裁定：热路径不埋无业界先例机制）。影子腿内同键同参
-        // =同一事实只记一次，命中返回首次 outcome（trace 标 DEDUPED）
-        if (semantics === "observe" && stateful) {
-          const memoFrameId = getExecContext()?.observeMemoId;
-          const memo = memoFrameId ? observeMemoRegistry.get(memoFrameId) : undefined;
-          if (memo) {
-            const memoKey = `${funcName}::${stableStringify(operatorKwargs)}`;
-            const pending = memo.get(memoKey);
-            if (pending) {
-              // 同参调用在飞行中/已完成——单飞等待，trace 标 DEDUPED
-              const outcome = await pending.promise;
-              traces.push({
-                key: execExpr.key,
-                name: funcName,
-                micros: 0,
-                code: "DEDUPED",
-                semantics,
-                outcome,
-              });
-              return outcome;
-            }
-            let resolvePending!: (v: unknown) => void;
-            const deferred = {
-              promise: new Promise<unknown>((r) => {
-                resolvePending = r;
-              }),
-              resolve: resolvePending,
-            };
-            memo.set(memoKey, deferred);
-            memoPend = deferred;
-          }
         }
         const kwargs: Record<string, unknown> = {
           ...operatorKwargs,
@@ -1376,7 +915,6 @@ class DecisionRuntime {
           const message = timeoutError instanceof Error ? timeoutError.message : String(timeoutError);
           if (message.includes("udf timeout")) {
             const timeoutOutcome = { error: { code: "UDF_TIMEOUT", message } };
-            memoPend?.resolve(timeoutOutcome);
             traces.push({
               key: execExpr.key,
               name: funcName,
@@ -1387,7 +925,6 @@ class DecisionRuntime {
             });
             return timeoutOutcome;
           }
-          memoPend?.resolve({ error: { code: "UDF_ERROR", message } });
           throw timeoutError;
         } finally {
           if (timeoutTimer !== undefined) {
@@ -1412,13 +949,11 @@ class DecisionRuntime {
             });
             if (this.resultValidation === "enforce") {
               const invalidOutcome = { error: { code: "INVALID_RESULT", issues: resultIssues } };
-              memoPend?.resolve(invalidOutcome);
               return invalidOutcome;
             }
           }
         }
 
-        memoPend?.resolve(result);
         traces.push({ key: execExpr.key, name: funcName, micros, semantics, idempotent, fidelity, outcome: result });
         return result;
       } else {

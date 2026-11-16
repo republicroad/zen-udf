@@ -7,14 +7,14 @@ import type { RateStore } from "./rate-store.ts";
  * Redis 实现）都应用本套件验证同一行为语义。工厂接收可注入时钟 now()——实现应
  * 使用该时钟打点（Redis 实现可将 now() 的时间戳随命令传入，而非依赖服务器时钟）。
  *
- * 分档（ADR-021 §1.4）：实现按通过档位获许可（live-only / live+replay）——
+ * 分档（ADR-021 §1.4）：实现按通过档位获许可（live-only / live 全量）——
  * - exact（缺省）：全向量严格断言（asOf point-in-time 在套件）+ **重试双计向量**
  *   （ADR-021 预评审核查 3 修正：exact 档唯一新增）；
  * - approximate：同向量 + ε 容差（epsilon，缺省 1——桶近似/双桶插值的读数差异）
  *   + 单调性豁免（滑窗精确复位类断言按 ε 放宽）。
  */
 export interface RateConformanceOptions {
-  /** 档位：exact（缺省，live+replay 许可）/ approximate（live-only，ε 容差） */
+  /** 档位：exact（缺省，live 全量许可）/ approximate（live-only，ε 容差） */
   mode?: "exact" | "approximate";
   /** approximate 档数值断言容差（|actual-expected| ≤ epsilon），缺省 1 */
   epsilon?: number;

@@ -39,21 +39,9 @@ export const createRuntimeExecutor = (
     await ensureRegistered();
     const startedAt = Date.now();
     const execCtx: ExecContext = {
-      meta: { tenantId },
-      decisionId: `fixture:${fixture.name}`,
-      ...(fixture.asOf ? { eventTime: fixture.asOf } : {}),
-      ...(fixture.journal
-        ? {
-            replay: {
-              decisionId: `fixture:${fixture.name}`,
-              asOf: fixture.asOf ?? new Date().toISOString(),
-              journal: fixture.journal,
-            },
-          }
-        : {}),
+      meta: { tenantId, ...(fixture.asOf ? { eventTime: fixture.asOf } : {}) },
     };
-    // trace 开销是测试语义的一部分（traceHits 矩阵列）；与生产热路径的审计
-    // 免 trace 化互不干扰（cbbbd347 解耦的是审计⇒trace，此处显式要 trace）
+    // trace 开销是测试语义的一部分（traceHits 矩阵列）——此处显式要 trace
     const outcome = await runWithExecContext(execCtx, () =>
       runtime.evaluateAsync(cacheKey, fixture.input, { trace: true }, rev),
     );

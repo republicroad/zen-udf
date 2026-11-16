@@ -53,14 +53,8 @@ export interface RateStore {
  * 任一端口 MAY 为 undefined（= 开发态默认放行/不做频控），实现 MUST 面向
  * per-tenant 数据决策。
  */
-/** 回放路径事件时间策略（ADR-021 §1.2）：strict=processing 工具遇 replay.asOf 报
- * RATE_NO_EVENT_TIME；degraded=照常执行（处理时间回退）+ trace TEMPORAL_FALLBACK 标注。缺省 degraded。 */
-export type ReplayPolicy = "strict" | "degraded";
-
 export interface UdfPorts {
   egressGuard?: EgressGuard;
-  /** 回放事件时间策略（ADR-021 §1.2）：缺省 degraded */
-  replayPolicy?: ReplayPolicy;
   secretResolver?: SecretResolver;
   rateStore?: RateStore;
 }

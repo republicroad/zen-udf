@@ -11,8 +11,6 @@
  * 根包 expression-evaluator.ts。
  */
 // 纯类型导入（编译期擦除）——零运行时依赖的前提不破坏
-import type { ReplayJournalEntry } from "./exec-context.ts";
-
 export type Expectation =
   | { mode: "deep"; value: unknown }
   | { mode: "path"; path: string; value: unknown }
@@ -24,10 +22,8 @@ export type Expectation =
 export interface DecisionFixture {
   name: string;
   input: unknown;
-  /** 事件时间（可选）：query 类算子的 asOf 时钟 */
+  /** 事件时间（可选）：meta.eventTime 约定键供给（velocity/trailing 类算子的锚点） */
   asOf?: string;
-  /** observe/act 桩（来自历史审计 journal）：提供时进入回放语义 */
-  journal?: ReplayJournalEntry[];
   /** 缺省 = smoke 语义：passed = 执行无异常（ADR-014 §2，NamedExample 的接入形态） */
   expect?: Expectation;
 }

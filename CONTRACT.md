@@ -46,7 +46,7 @@ haproxy/数据状态/数据库类）——本契约约束 zen-udf 核心与其�
 
 | 字段         | 类型                                                                                    | 约束                                                                                                                                                 |
 | ------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `semantics`  | `query` \| `observe` \| `act`                                                           | 缺省 `query`。query=纯读；observe=观测累积（回放读 journal 不重执行）；act=处置效果。**act 工具 MUST 声明 `idempotent: boolean`**（缺失 = 注册失败） |
+| `semantics`  | `query` \| `observe` \| `act`                                                           | 缺省 `query`。query=纯读；observe=观测累积（有状态信号记录）；act=处置效果。**act 工具 MUST 声明 `idempotent: boolean`**（缺失 = 注册失败） |
 | `idempotent` | boolean?                                                                                | 仅 act 语义有意义：true=重放安全                                                                                                                     |
 | `deprecated` | `{since?, note}?`                                                                       | 弃用标记：目录/补全/校验告警 MUST 透传                                                                                                               |
 | `meta`       | `{origin: reference\|extension\|industry, version: string, license?: oss\|proprietary}` | pack 级元数据（ADR-009 最小集纪律：字段一旦发布即兼容面，只减不增需重大版本）                                                                        |
@@ -131,56 +131,36 @@ example 生成三条 conformance 断言（§7）：input 经 §5.2 校验通过�
 | `CYCLE_DETECTED`     | 实例依赖环（§11.5，执行前结构化错误，列环上输出键）                    |
 | `DUPLICATE_OUTPUT`   | 输出键重声明（§11.5，行内变量重声明）                                  |
 | `INVALID_DEPENDENCY` | 依赖前驱实例失败，本实例不执行（级联传播）                             |
-| `RATE_NO_EVENT_TIME` | 状态算子回放强制（§13.2）：processing 工具遇 replay.asOf 且策略 strict |
 
 - **脱敏**：错误信息 MUST 经脱敏管道（路径/凭证类值替换为占位）后暴露。
 
-### 5.5 执行上下文通道（ExecContext，3.0.0 立法形态）
+### 5.5 执行上下文通道（ExecContext，4.0.0 纯数据面立法）
 
-zen-udf 是**通用的 zen-engine 自定义节点上下文传递机制**——应用域概念（多租户
-命名空间隔离等）不占 typed 字段面。字段按 data/control 分离立法分两面：
+zen-udf 是**与语义无关的自定义节点执行时上下文参数传递机制**——效果同词法作用域 /
+Python `globals()`/`locals()`：宿主在调用边界构造，节点内工具随处可读，图表达式不可见。
 
-**控制面（引擎读，宿主构造；typed）**
+**ExecContext = 纯数据面**（4.0.0）：唯一字段 `meta`（宿主元数据开放通道，OTel
+baggage 同款）——引擎自身零语义字段、零解读。约定键示例（宿主自定义，非引擎契约）：
 
-| 字段 | 引擎读取点 | 语义 |
-| --- | --- | --- |
-| `replay` | executeExpr（Y3 闸） | 行为开关：observe/act 不重执行，读 journal |
-| `shadow` | executeExpr（AA1 闸） | 行为开关：act 影子侧 intent 占位 |
-| `decisionId` | emitAudit + replay 重建 | 审计主键 / act 幂等依据 |
-| `eventTime` | emitAudit + replay 重建 | 审计 asOf / 事件时间锚（引擎+工具双消费，留 typed） |
-| `journalId` `@internal` | handleCustomNode journal 写回 | 引擎自产自销 opaque id（宿主仅透传） |
-| `observeMemoId` `@internal` | executeExpr memo 闸 | 引擎自产自销（影子帧） |
-
-**数据面（引擎永不读；宿主业务自维护）**
-
-| 字段 | 语义 |
+| 约定键 | 语义 |
 | --- | --- |
-| `meta` | 宿主元数据开放通道（OTel baggage 同款）：任意 JSON-able k/v 随 ALS/TSFN 克隆传播；参考域约定键 `tenantId`/`userId`（多租户场景）由宿主在构造点注入、工具按约定键自读 |
+| `tenantId` | 多租户命名空间隔离（分区隔离键经 partitionKey 提取器由宿主从 meta 派生） |
+| `userId` / `requestId` | 执行身份 / 幂等键单源（ADR-021 §1.3） |
+| `eventTime` | 事件时间锚（velocity/trailing 类算子消费；缺省 = 处理时间） |
 
-**分区隔离端口（3.0.0）**：引擎自身机制（决策缓存键/熔断器/并发闸/审计与指标
-事件）的隔离键唯一来源 = `DecisionRuntime` 的 `partitionKey?: (ctx) => string |
-undefined` **提取器端口**——宿主一行接租户（`(ctx) => String(ctx.meta?.tenantId
-?? "")`），引擎自身零应用域概念、不读 meta（读 meta 的是宿主自己的函数）。
-可选 `requirePartition` 门（分区缺失 fail-closed）泛化替代历史的多租户入口
-强制；缺省 false = 宿主自管。分区缺失形态：缓存键退化 `:key@rev` 全局共享、
-熔断/并发闸全局段。
+**通道分层**：进程内 `getExecContext()`/`runWithExecContext`（ALS）；跨内核边界
+经原生 `execution_context` 通道（evaluate 第三参 → 内核 `CustomNodeRequest.executionContext`
+→ handler 重建 ALS）。裸 `createDecision().evaluate()` = 无上下文（匿名求值形态）。
 
-**业界最佳实践判据（立法出处）**：
-1. 引擎语义 typed / 应用数据开放袋——OTel Baggage、gRPC metadata、Kafka headers、Temporal memo 同构；
-2. 隔离键显式声明禁 ambient——Stripe named rate limiter、Flink state descriptor、Envoy RLS descriptor；
-3. 横切守卫在宿主边界层——Spring Security filter chain、gRPC interceptor；
-4. 开放袋键名约定文档化，多方化时才前缀化——K8s annotations / OTel semconv。
+**机制退役记录（4.0.0）**：决策审计/确定性回放（Y2/Y3）/影子评估（AA1）/Trust Chain
+哈希链随宿主裁定整体退役——宿主将重新设计规则回放（配专门的 UDF 日志文件）；未来
+按 additive 回归（CONTRACT 升格规则，需 ADR）。历史保留键已于 2.3.0 退役
+（`docs/design/zen-udf-batch166-passthrough-attenuation.md` §7）。
 
-**通道分层**（与 2.3.0 一致）：进程内 `getExecContext()`/`runWithExecContext`
-（ALS）；跨内核边界经原生 `execution_context` 通道（evaluate 第三参 → 内核
-`CustomNodeRequest.executionContext` → handler 重建 ALS）。历史保留键
-`__zen_udf_exec_ctx__` 已于 2.3.0 退役（见
-`docs/design/zen-udf-batch166-passthrough-attenuation.md` §7）。
-
-**升格/降格规则**：键被引擎语义依赖时 MUST 升格 typed（需 ADR）；引擎消费
-消失时可降格 meta（需 ADR——3.0.0 即 tenantId/userId/requestId/tenantExempt
-降格记录）。宿主不得在 meta 塞与 typed 控制面同名的对抗键篡改引擎行为——
-引擎控制面读取只认 typed 字段，meta 永不参与引擎判定。
+**升格/降格规则**：键被引擎语义依赖时 MUST 升格 typed（需 ADR）；引擎消费消失时降格
+meta（需 ADR——3.0.0 tenantId/userId/requestId/tenantExempt、4.0.0 eventTime/replay/
+decisionId/journalId/shadow 降格记录）。宿主不得在 meta 塞对抗键篡改引擎行为——引擎
+控制面读取只认 typed 字段，meta 永不参与引擎判定（当前 typed 面为空，该性质平凡成立）。
 
 ## 6. 执行策略边界（机制/策略分界）
 
@@ -230,9 +210,9 @@ ADR-009/执行规范 §6.2-6.4）。语言实现 MUST 提供这些端口的接�
 - 语料与 fixtures 随上游（gorules/zen）基线滚动更新；实现升级 MUST 先过全量
   conformance 与回归语料；
 - **兼容级（1.6.0 立法，Confluent BACKWARD/FORWARD 同族）**：
-  - **BACKWARD（minor）**：additive 可选字段（meta/journal/ctx 新可选键）、新
+  - **BACKWARD（minor）**：additive 可选字段（meta/ctx 新可选键）、新
     错误码、新子路径导出、新语义分支（旧图/旧审计行为零变化）——消费方自由升级；
-  - **FORWARD（消费方义务）**：消费方 MUST 容忍未知字段（meta/journal/observed/
+  - **FORWARD（消费方义务）**：消费方 MUST 容忍未知字段（meta/
     fixtures 报告的未知键不报错）——本章各结构体的新增字段依赖此义务才构成 minor；
   - **BREAKING（major）**：导出移除/改名、字段类型收窄、已文档语义的行为变更、
     fixtures/错误码形状变更——MUST 升 major 并在变更记录中给出迁移路径；
@@ -259,7 +239,6 @@ ADR-009/执行规范 §6.2-6.4）。语言实现 MUST 提供这些端口的接�
   "name": "正常 GOLD 用户",
   "input": { "customer": { "tier": "GOLD" } },
   "asOf": "2026-10-01T00:00:00Z",
-  "journal": [{ "key": "flag", "name": "flag_udf", "outcome": { "flagged": false } }],
   "expect": { "mode": "deep", "value": { "tier": "GOLD" } }
 }
 ```
@@ -274,20 +253,8 @@ ADR-009/执行规范 §6.2-6.4）。语言实现 MUST 提供这些端口的接�
   （ADR-014 OQ3 修订增补；1.3.x 的 `result.xxx` 包装形态废弃，存量条件改裸键）；
 - `mode: "predicate"`（函数体断言）是**进程内便利糖，不在本契约内**（不可跨端
   序列化）；
-- `journal` + `asOf`：Y3 回放语义——observe/act 从桩读回不重执行，夹具可复现；
-- **回放钉扎（1.5.0）**：journal 条目可携带 `packVersion`（审计 observed 透传，
-  版本源 = 函数所属 pack 的 `meta.version`）——回放时与当前注册表比对，不一致
-  即 `REPLAY_PIN_MISMATCH` fail visible（防 pack 升级后回放静默漂移；缺省不参与
-  钉扎，存量审计回放行为不变）。夹具报告携带 `fingerprint`（FNV-1a，非加密，
-  夹具集漂移检出）。
-
-### 10.2 执行器（DecisionTestExecutor）
-
-```
-executor(fixture, index) → { result?, error?, durationMs?, traceHits? }
-```
-
-- runner（`runDecisionTests`）只依赖本契约，零引擎依赖——执行/租户/回放/追踪
+- `asOf`：meta.eventTime 约定键供给（事件时间锚，velocity/trailing 类算子消费）；
+- - runner（`runDecisionTests`）只依赖本契约，零引擎依赖——执行/租户/回放/追踪
   全部在 executor 实现（服务端 runtime 适配器 / 浏览器 simulateHandler 适配器 /
   mock，同语义）；
 - `traceHits` = 命中节点 id 数组（executor 自行对齐来源语义）。
@@ -405,7 +372,7 @@ kwargs 值 / `$positional` 元素可为信封对象——**模式显式化的 op
   前驱输出（输出遮蔽同名输入，对齐表达式节点行内求值），`$.dep` 引用在
   执行前替换为裸键（仅对已完成依赖键、词边界精确）；
 - **零边快路径**：无依赖边 = 单层全并行（原 `Promise.all` 直通，零开销）；
-- **调度器单源**：Y3 回放与执行共用同一调度序（拓扑序回放防垫回错位）。
+- **调度器单源**：执行与未来回放重设计共用同一调度序（拓扑序防垫回错位）。
 
 ## 12. 一致性档位（Conformance Profiles，1.0 验收基准）
 
@@ -414,8 +381,7 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 | 档位                       | 覆盖面                                                                                            | 验收                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------- |
 | **Profile A · 核心执行**   | §3 声明契约 + §5 执行三动作（validate/bind/call）+ §11 调用形态双读 + §10 夹具契约                | §7 全量 fixtures 通过     |
-| **Profile B · 信任链**     | A + Y3 回放（journal 垫回/asOf/REPLAY_JOURNAL_MISS fail-closed）+ 审计哈希链与 journalDigest 重算 | §10 夹具 + 回放一致性断言 |
-| **Profile C · 服务端全量** | B + 分区端口 + meta 约定键（§5.5）+ 端口面（§6）+ 实例依赖调度（§11.5）+ breaker/limiter/审计       | 全量 1100 用例            |
+| **Profile B · 服务端全量** | A + 分区端口 + meta 约定键（§5.5）+ 端口面（§6）+ 实例依赖调度（§11.5）+ breaker/limiter | 全量 1000 用例            |
 
 多语言移植版按目标部署面选档认证；档位明示于实现的兼容性声明中。
 
@@ -429,7 +395,7 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 
 | 字段       | 值域                                          | 缺省              | 语义                                                                                     |
 | ---------- | --------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
-| `temporal` | `event \| processing`                         | `event`           | `event`=asOf point-in-time 原生支持；`processing`=处理时间实现，replay 路径受 §13.2 强制 |
+| `temporal` | `event \| processing`                         | `event`           | `event`=事件时间语义（宿主经 meta.eventTime 供给锚点，asOf point-in-time 原生支持）；`processing`=处理时间实现 |
 | `stateful` | boolean                                       | `false`           | `true`=非幂等（INCR 形态，同参重试双计）——宿主 HTTP/重试包装器 MUST 执行禁自动重试       |
 | `fidelity` | `exact-per-event \| bucketed \| interpolated` | `exact-per-event` | 保真披露：进 trace 与目录（§13.4）；跨实现等价性判定的 ε 口径依据                        |
 
@@ -438,19 +404,11 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 - **幂等键单源**：有状态调用的幂等键 = `meta.requestId`（宿主约定键，批次 167）贯穿（与 ADR-002
   构造期捕获同构）；tool 级参数覆盖不做（防双键并行去重漂移）。
 
-### 13.2 replay 路径强制（时间档位运行时）
+### 13.2 回放路径强制（4.0.0 退役）
 
-`ExecContext.replay.asOf` 存在且工具 `temporal: 'processing'` 时，按端口
-`replayPolicy` 执行：
-
-| 策略               | 行为                                                                 |
-| ------------------ | -------------------------------------------------------------------- |
-| `strict`           | 结构化错误 `RATE_NO_EVENT_TIME`（入 trace 与 outcome，fail visible） |
-| `degraded`（缺省） | 照常执行（处理时间回退）+ trace `TEMPORAL_FALLBACK` 标注             |
-
-- `observe`/`act` 语义工具走 journal 读回（不重执行），**不受此强制**——与回放
-  钉扎（1.5.0）同通道：journal/observed 携 packVersion，本条携时间档位强制；
-- `RATE_NO_EVENT_TIME` 为 normative 错误码（§5.4 表收录）。
+> 本节随 Y3 回放机制退役（4.0.0，宿主重设计中）——历史记录保留作回放重设计的
+> 立法参考：processing 时间档工具在回放路径的时间档位强制（strict=RATE_NO_EVENT_TIME
+> fail visible / degraded=处理时间回退 + TEMPORAL_FALLBACK 标注）。
 
 ### 13.3 Conformance 分档（rate-store 存储实现许可）
 
@@ -460,7 +418,7 @@ rate-store-conformance 套件按 `mode` 分档；实现按通过档位获部署�
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | `exact`             | 现套件全向量（含 asOf point-in-time）+ **重试双计向量**：rate INCR 形态同参重试 MUST 双计；groupDistinct 的 pv 双计而 uv 不双计——「非幂等」钉进契约 | live-only   |
 | `approximate`       | exact 向量 − 重试双计 + ε 容差 + 单调性豁免声明                                                                                                     | live-only   |
-| exact + asOf 全通过 | —                                                                                                                                                   | live+replay |
+| exact + asOf 全通过 | —                                                                                                                                                   | live 全量（point-in-time 复算） |
 
 与 §12 一致性档位正交：§12 认**语言实现**，本节认 **rate-store 存储实现**。
 

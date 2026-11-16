@@ -1,6 +1,6 @@
 # @republicroad/zen-udf
 
-zen-engine 的 customNode UDF 核心运行时：**多函数实例执行规范 + UdfPack 注册表 + L1 决策缓存 + 决策审计与确定性回放 + 数据面端口**。
+zen-engine 的 customNode UDF 核心运行时：**多函数实例执行规范 + UdfPack 注册表 + L1 决策缓存 + 分区端口 + 纯数据面上下文**。
 
 **定位（三包架构，批次 168）**：zen-udf 是**与语义无关的自定义节点执行时上下文参数传递机制**——ExecContext 经原生 execution_context 通道送达每个自定义节点 handler，效果同词法作用域 / Python /：宿主在调用边界构造上下文，节点内工具随处可读，图表达式不可见。应用域概念（多租户身份等）住 meta 数据面由宿主自维护；引擎机制隔离键经 partitionKey 提取器端口由宿主声明（CONTRACT §5.5）。工具集分层：[@republicroad/zen-udf-contrib](https://www.npmjs.com/package/@republicroad/zen-udf-contrib)（开源无状态参考域）+ zen-udf-ee（企业级有状态节点：haproxy/数据状态/数据库类）。
 
@@ -23,7 +23,7 @@ zen-engine 原生只执行内置节点类型；本包负责四件事：
 
 1. **执行规范**——customNode 内多函数实例（`udf;;arg;;arg`）的求值、位置参数绑定、必填校验、超时兜底、per-tenant 并发闸与熔断、返回值契约、错误 containment 与脱敏、响应体积守卫（http maxBytes）
 2. **决策缓存**——L1 进程内缓存（LRU + 指标），键 `${tenantId}:${key}@${rev}`（zen-engine 函数 loader 无引擎级缓存，缓存责任在宿主——探针实证）
-3. **审计与确定性回放**——决策审计事件（onDecision）+ 算子语义三元（query/observe/act）+ journal 回放（observe/act 不重执行）+ 影子评估（evaluateShadow 字段级 diff）+ 输入序列化守卫（NaN/Infinity fail-fast）+ 批量评估（evaluateMany）
+3. **算子语义三元**（query/observe/act）+ 输入序列化守卫（NaN/Infinity fail-fast）+ 批量评估（evaluateMany）（审计/回放/影子 4.0.0 退役——宿主重设计中）
 4. **多租户上下文与端口**——AsyncLocalStorage 贯穿 evaluate → customNode → UDF（ALS 不跨 TSFN 边界，运行时以输入保留键重建）；数据面端口（RateStore/ConcurrencyLimiter/EgressGuard/SecretResolver）
 
 ## 快速上手
@@ -58,7 +58,6 @@ const runtime = new DecisionRuntime({
   limiter: myLimiter, // 可选：per-tenant 并发闸
   breaker: myBreaker, // 可选：熔断器
   metricsSink: (snapshot) => stats.gauge('zen_udf_cache_size', snapshot.size),
-  onDecision: (event) => auditLog.write(event), // 决策审计事件（Y2）
 });
 
 // 应用域身份住 meta 数据面（3.0.0）；分区隔离键经 partitionKey 提取器（宿主映射）
@@ -70,12 +69,8 @@ await runWithExecContext({ meta: { tenantId: 't-1', userId: 'u-1' }, decisionId:
   const result = await runtime.evaluateAsync('fraud-model', { deviceId: 'dev-9' }, undefined, 'v3');
 });
 
-// 确定性回放（Y3）：observe/act 读审计 journal，query 以 asOf 重算
-const replayed = await runtime.evaluateReplay(auditEvent, originalInput);
 ```
 
-// 确定性回放（Y3）：observe/act 读审计 journal，query 以 asOf 重算
-const replayed = await runtime.evaluateReplay(auditEvent, originalInput);
 
 ````
 
@@ -143,25 +138,11 @@ DecisionRuntime / UdfPack / registerUdf / registerTools / defineContrib / define
 
 ## 算子语义三元
 
-| 语义            | 例                      | 生产执行                                    | 回放行为                     |
-| --------------- | ----------------------- | ------------------------------------------- | ---------------------------- |
-| `query`（缺省） | 查询、加密、属地        | 读                                          | 正常执行（时钟 = asOf）      |
-| `observe`       | rate_1h、group_distinct | 观测即计数（含当前事件，原子）              | **不重执行**，读审计 journal |
-| `act`           | 拉黑、通知              | 执行并 journal outcome（幂等键 decisionId） | **不重执行**，读审计 journal |
-
-journal 缺失时 fail closed（`REPLAY_JOURNAL_MISS`）——宁可回放失败，不可静默给出新值。
-
-## 决策审计事件
-
-```ts
-new DecisionRuntime({
-  onDecision: (event) => auditLog.write(event),
-  // event: { decisionId, tenantId, key, rev, inputHash, output, asOf, processingTime, source, observed[] }
-});
-```
-
-- `inputHash` = sha256(input)（数据最小化）；`output` 为完整决策结论（宿主裁决 D11）
-- `observed[]` 携带每个 UDF 的返回值快照——回放 journal 的数据来源，也是"为什么当时是这个决策"的证据
+| 语义            | 例                      | 生产执行                       |
+| --------------- | ----------------------- | ------------------------------ |
+| `query`（缺省） | 查询、加密、属地        | 读                             |
+| `observe`       | rate_1h、group_distinct | 观测即计数（含当前事件，原子） |
+| `act`           | 拉黑、通知              | 处置效果执行（幂等键 meta.requestId） |
 
 ## 端口（机制在本仓，策略在宿主）
 
@@ -173,13 +154,9 @@ new DecisionRuntime({
 | `EgressGuard`        | http UDF 出口 allowlist（防 SSRF） | 未配置 = 全拒（fail-closed 安全缺省）                                            |
 | `SecretResolver`     | 图内 `${secret:名称}` 按租户解析   | 未配置 = secret 引用报错                                                        |
 
-## 影子评估与批量评估
+## 批量评估
 
 ````ts
-// 影子评估：新旧 rev 并行执行，act 影子侧返回 intent 占位（不双次处置）
-const shadow = await runtime.evaluateShadow('fraud-model', { prod: 'v2', shadow: 'v3' }, input);
-console.log(shadow.equivalent, shadow.differences); // 不一致率达标后切流
-
 // 批量评估：同模型多输入并发，逐条错误隔离
 const results = await runtime.evaluateMany('fraud-model', [
   { input: { x: 1 }, rev: 'v2' },
@@ -195,9 +172,9 @@ const results = await runtime.evaluateMany('fraud-model', [
 
 ## 多租户要点
 
-- `ExecContext { tenantId, userId?, requestId?, decisionId?, eventTime?, replay? }`：evaluate 入口强制 tenantId
-- 注册是 deploy-time 静态行为；租户差异经 ExecContext + 端口解析
-- 编译产物租户无关（同租户同模型共享缓存），数据面租户相关
+- `ExecContext { meta }`：纯数据面——租户身份等约定键住 meta（宿主自维护）；分区隔离经 runtime 的 partitionKey 提取器（宿主从 meta 派生，可选 requirePartition 门）
+- 注册是 deploy-time 静态行为；租户差异经 meta + 端口解析
+- 编译产物租户无关（同分区同模型共享缓存），数据面分区相关
 
 ## 设计文档
 

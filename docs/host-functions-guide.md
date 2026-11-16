@@ -1,5 +1,8 @@
 # 宿主自定义函数指南（基于 zen-udf 实现扩展函数）
 
+> **4.0.0 退役注记**：本文涉及 回放/replayPolicy/RATE_NO_EVENT_TIME/TEMPORAL_FALLBACK/journal 的段落已随机制退役（宿主将重新设计规则回放）——现行契约见 CONTRACT.md §5.5（纯数据面）。
+
+
 面向宿主开发者：如何在应用里基于 zen-udf 实现自定义函数——尤其是**重 I/O 逻辑**
 （访问 Redis、专有数据库、第三方 API）。
 

@@ -22,20 +22,14 @@ export {
   type DecisionCacheOptions,
 } from "./decision-cache.ts";
 export {
-  type DecisionAuditEvent,
-  type DecisionObservedCall,
   DecisionRuntime,
   type DecisionRuntimeOptions,
   type MetricsEvent,
-  type ShadowDiffEntry,
-  type ShadowEvaluation,
   type UdfTrace,
 } from "./engine.ts";
 export {
   type ExecContext,
   getExecContext,
-  type ReplayContext,
-  type ReplayJournalEntry,
   runWithExecContext,
 } from "./exec-context.ts";
 export { createZenExpressionEvaluator } from "./expression-evaluator.ts";

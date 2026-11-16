@@ -68,7 +68,6 @@ describe("声明式出口清单（1.6.0，CONTRACT §6 可选面）", () => {
         ],
       });
       expect(registry.udfEgress("ping")).toEqual(["hooks.slack.com"]);
-      expect(registry.udfPackVersion("ping")).toBe("2.0.0");
 
       const bare = createUdfRuntime();
       expect(bare.udfEgress("nonexistent")).toBeUndefined();

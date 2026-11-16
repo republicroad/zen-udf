@@ -1,5 +1,8 @@
 # 实施计划：ExecContext 宿主元数据通道（meta bag）
 
+> **批次 170 更新（4.0.0）**：eventTime/replay/decisionId/journalId/shadow 已全部退役——ExecContext 纯数据面（meta 唯一字段），本文历史判据仅存档。
+
+
 - 日期：2026-11-16
 - 状态：**planned**（宿主评审通过 §8；M1/M2 已折入——M1 落点经核验修订为**远侧**
   冻结，依据见 §9；未实施）
