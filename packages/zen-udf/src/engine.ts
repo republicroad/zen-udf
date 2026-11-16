@@ -918,7 +918,6 @@ class DecisionRuntime {
 
     // ExecContext 重建立：ALS 不跨 TSFN 边界，从嵌入输入的保留键恢复（见 evaluate）
     const rawInput = (request.input ?? {}) as Record<string, unknown>;
-    if (process.env.DBG_166) console.log("[DBG handle] node:", node.id, "inputKeys:", Object.keys(rawInput).join(","), "ctxJSON:", JSON.stringify(rawInput[EXEC_CONTEXT_INPUT_KEY]));
     const execCtx = rawInput[EXEC_CONTEXT_INPUT_KEY] as ExecContext | undefined;
 
     const context: Record<string, unknown> = {
