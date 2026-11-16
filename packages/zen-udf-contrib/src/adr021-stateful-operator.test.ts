@@ -79,11 +79,11 @@ describe("ADR-021 §1.1 三字段契约（缺省与 pack 缺省 + tool 覆盖）
         }),
       ],
     });
-    await runWithExecContext({ tenantId: "t" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, () => {
       runtime.createDecisionWithCacheKey("k", probeGraph("ctx_probe"), "v1");
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: "t" }, () => runtime.evaluateAsync("k", {}, undefined, "v1"));
+    await runWithExecContext({ meta: { tenantId: "t" } }, () => runtime.evaluateAsync("k", {}, undefined, "v1"));
     expect(seen).toEqual({ temporal: "event", stateful: true, fidelity: "bucketed" });
   });
 });
@@ -116,7 +116,7 @@ describe("ADR-021 §1.2 replay 强制（processing + asOf → 宿主 ReplayPolic
     });
     // 组合根注入策略：setPorts 经 createUdfRuntime；engine 读 getPorts()
     setPorts(policy ? { replayPolicy: policy } : {});
-    await runWithExecContext({ tenantId: "t" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, () => {
       runtime.createDecisionWithCacheKey("k", probeGraph("proc_fn"), "v1");
       return Promise.resolve();
     });
@@ -126,7 +126,7 @@ describe("ADR-021 §1.2 replay 强制（processing + asOf → 宿主 ReplayPolic
   test("strict：RATE_NO_EVENT_TIME fail visible", async () => {
     const runtime = await setup("strict");
     const result = await runWithExecContext(
-      { tenantId: "t", replay: { decisionId: "d", asOf: "2026-10-13T00:00:00Z", journal: [] } },
+      { meta: { tenantId: "t" }, replay: { decisionId: "d", asOf: "2026-10-13T00:00:00Z", journal: [] } },
       () => runtime.evaluateAsync("k", {}, undefined, "v1"),
     );
     const out = (result.result as { out?: { error?: { code?: string } } }).out;
@@ -138,7 +138,7 @@ describe("ADR-021 §1.2 replay 强制（processing + asOf → 宿主 ReplayPolic
     const events: DecisionAuditEvent[] = [];
     const runtime = await setup(undefined, (e) => events.push(e));
     const result = await runWithExecContext(
-      { tenantId: "t", replay: { decisionId: "d", asOf: "2026-10-13T00:00:00Z", journal: [] } },
+      { meta: { tenantId: "t" }, replay: { decisionId: "d", asOf: "2026-10-13T00:00:00Z", journal: [] } },
       () => runtime.evaluateAsync("k", {}, undefined, "v1"),
     );
     expect((result.result as { out?: { now?: number } }).out).toMatchObject({ now: 1 });
@@ -156,12 +156,12 @@ describe("ADR-021 §1.2 replay 强制（processing + asOf → 宿主 ReplayPolic
     const registry = new UdfRegistry();
     const runtime = new DecisionRuntime({ registry });
     registry.register({ id: "probe", tools: [makeTool({ name: "event_fn", namespace: "probe" })] });
-    await runWithExecContext({ tenantId: "t" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, () => {
       runtime.createDecisionWithCacheKey("k", probeGraph("event_fn"), "v1");
       return Promise.resolve();
     });
     const result = await runWithExecContext(
-      { tenantId: "t", replay: { decisionId: "d", asOf: "2026-10-13T00:00:00Z", journal: [] } },
+      { meta: { tenantId: "t" }, replay: { decisionId: "d", asOf: "2026-10-13T00:00:00Z", journal: [] } },
       () => runtime.evaluateAsync("k", {}, undefined, "v1"),
     );
     expect((result.result as { out?: unknown }).out).toMatchObject({ ok: true });
@@ -184,7 +184,7 @@ describe("ADR-021 §1.5 双名注册（trailing 改名 + 旧名 alias 同函数�
     expect(oldSchema?.deprecated?.note).toContain("trailing_count_1h");
 
     // 语义同源：旧名与别名打同一 store——两次调用 counter 贯通（含重试双计语义）
-    await runWithExecContext({ tenantId: "t" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
       const rNew = await globalUdfRegistry.call(
         "trailing_count_1h",
         { entity: "ip-x" },

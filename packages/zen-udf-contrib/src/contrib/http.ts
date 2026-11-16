@@ -1,6 +1,9 @@
 import type { EgressGuard, SecretResolver } from "@republicroad/zen-udf";
 import { getExecContext, getPorts, globalUdfRegistry, pack, tool, type ToolContext } from "@republicroad/zen-udf";
 
+// meta 键约定（批次 167，参考域契约）：本域从 ExecContext.meta 读取应用域身份——
+// 宿主应在构造上下文时提供 `meta: { tenantId, userId? }`（多租户隔离语义由宿主
+// 定义；多方生态时按 K8s/OTel 惯例升前缀键）。引擎自身不解读这些键。
 // http 域(http_request 函数，有专属 UI 设计，文件名即 namespace)
 //
 // ADR-011/012 迁移完成（1.0）：端口经组合根 createUdfRuntime({ ports }) 注入，
@@ -121,7 +124,7 @@ async function runHttpRequest(kwargs: Record<string, unknown>, call?: ToolContex
     return httpErrorResult(`invalid url '${rawUrl}'`);
   }
 
-  const tenantId = getExecContext()?.tenantId;
+  const tenantId = getExecContext()?.meta?.tenantId as string | undefined;
   // 端口每次执行时从组合根读取（getPorts 单源）——注入时机与 per-call 测试注入均生效
   const { egressGuard, secretResolver } = currentEgressPolicy();
   try {

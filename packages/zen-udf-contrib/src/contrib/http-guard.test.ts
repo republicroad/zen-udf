@@ -18,7 +18,7 @@ const json = (res: ServerResponse, status: number, body: unknown): void => {
   res.end(JSON.stringify(body));
 };
 
-const call = async (kwargs: Record<string, unknown>, ctx?: { tenantId: string }): Promise<unknown> =>
+const call = async (kwargs: Record<string, unknown>, ctx?: { meta?: Record<string, unknown> }): Promise<unknown> =>
   ctx ? runWithExecContext(ctx, async () => httpRequest(kwargs)) : httpRequest(kwargs);
 
 beforeAll(async () => {
@@ -57,7 +57,7 @@ describe("http_request EgressGuard（U9）", () => {
       },
     } as UdfPorts);
 
-    const result = (await call({ url: `${baseUrl}/json`, retry: 3 }, { tenantId: "t-1" })) as {
+    const result = (await call({ url: `${baseUrl}/json`, retry: 3 }, { meta: { tenantId: "t-1" } })) as {
       status: number;
       error?: string;
       policyBlocked?: boolean;
@@ -81,7 +81,7 @@ describe("http_request SecretResolver（U9）", () => {
 
     const result = (await call(
       { url: `${baseUrl}/echo`, auth: { type: "basic", username: "alice", password: "${secret:db-pass}" } },
-      { tenantId: "t-1" },
+      { meta: { tenantId: "t-1" } },
     )) as { status: number; body?: { auth?: string } };
     expect(result.status).toBe(200);
     const expected = "Basic " + Buffer.from("alice:s3cret-value", "utf8").toString("base64");
@@ -113,7 +113,7 @@ describe("http_request SecretResolver（U9）", () => {
     } as UdfPorts);
     const result = (await call(
       { url: `${baseUrl}/echo`, auth: { type: "basic", username: "u", password: "${secret:db-pass}" } },
-      { tenantId: "t-1" },
+      { meta: { tenantId: "t-1" } },
     )) as { status: number; error?: string };
     expect(result.status).toBe(0);
     expect(result.error).toContain("secret resolve failed");

@@ -137,7 +137,7 @@ describe("批次 80 · 影子侧只读降级", () => {
       __asNode: () => node as unknown as HaProxyCountNode,
     };
     const tool = createClusterDetectTool(node.__asNode());
-    const outcome = await runWithExecContext({ tenantId: "t-1", shadow: { prodRev: "v1" } }, async () =>
+    const outcome = await runWithExecContext({ meta: { tenantId: "t-1" }, shadow: { prodRev: "v1" } }, async () =>
       tool.run({ group: "ip", value: "acct" }),
     );
     expect((outcome as { uv: number }).uv).toBe(7);
@@ -155,7 +155,7 @@ describe("批次 80 · 影子侧只读降级", () => {
       __asNode: () => node as unknown as HaProxyCountNode,
     };
     const tool = createScoreboardTool(node.__asNode(), { ratioFloor: 1 });
-    const r = (await runWithExecContext({ tenantId: "t-1", shadow: { prodRev: "v1" } }, async () =>
+    const r = (await runWithExecContext({ meta: { tenantId: "t-1" }, shadow: { prodRev: "v1" } }, async () =>
       tool.run({ entity: "e1", incA: true, incB: false }),
     )) as { a: number; b: number; ratio: number };
     expect(slots).toEqual(["NONE"]); // 影子侧双真/单真都强制 NONE

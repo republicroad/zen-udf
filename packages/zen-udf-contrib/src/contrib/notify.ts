@@ -1,5 +1,8 @@
 import { getExecContext, globalUdfRegistry, pack, tool } from "@republicroad/zen-udf";
 
+// meta 键约定（批次 167，参考域契约）：本域从 ExecContext.meta 读取应用域身份——
+// 宿主应在构造上下文时提供 `meta: { tenantId, userId? }`（多租户隔离语义由宿主
+// 定义；多方生态时按 K8s/OTel 惯例升前缀键）。引擎自身不解读这些键。
 // notify 域(notify_webhook 函数):面向 IM 机器人的轻量出站通知。
 // 与 http 域共享同一出口防护/密钥解析配置面(configureHttpUdf 单一入口)。
 //
@@ -117,7 +120,7 @@ export const notifyWebhookTool = tool({
       return notifyErrorResult("webhook is required");
     }
 
-    const tenantId = getExecContext()?.tenantId;
+    const tenantId = getExecContext()?.meta?.tenantId as string | undefined;
     const { egressGuard, secretResolver } = currentEgressPolicy();
     let webhookUrl = rawWebhook;
     if (SECRET_REF_PATTERN.test(webhookUrl)) {

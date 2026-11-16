@@ -15,6 +15,10 @@ import { queryValueList } from "../value-list.ts";
  * alias 同一查询核心 + deprecated 元数据，存量图永久可读。
  * v2 预留：value_list.record(list, value, ttl)（observe，velocity_record 镜像）
  * ——随宿主动态名单需求启动，本版不实现。
+ 
+ * meta 键约定（批次 167，参考域契约）：本域从 ExecContext.meta 读取应用域身份——
+ * 宿主应在构造上下文时提供 `meta: { tenantId, userId? }`（多租户隔离语义由宿主
+ * 定义；多方生态时按 K8s/OTel 惯例升前缀键）。引擎自身不解读这些键。
  */
 
 const outputSchema = Type.Object(
@@ -29,10 +33,12 @@ const outputSchema = Type.Object(
 
 const runQuery = (input: { list: string; value?: string }) => {
   const ctx = getExecContext();
-  if (!ctx?.tenantId) return { hit: false, list: input.list, value: input.value ?? null };
+  // meta 键约定（批次 167）：宿主在 meta 提供 tenantId/userId（多租户名单隔离）
+  const tenantId = ctx?.meta?.tenantId;
+  if (typeof tenantId !== "string") return { hit: false, list: input.list, value: input.value ?? null };
   return queryValueList(input.list, input.value ?? null, {
-    tenantId: ctx.tenantId,
-    actor: ctx.userId,
+    tenantId,
+    actor: ctx?.meta?.userId as string | undefined,
   });
 };
 

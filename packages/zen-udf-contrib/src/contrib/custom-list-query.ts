@@ -1,3 +1,6 @@
+// meta 键约定（批次 167，参考域契约）：本域从 ExecContext.meta 读取应用域身份——
+// 宿主应在构造上下文时提供 `meta: { tenantId, userId? }`（多租户隔离语义由宿主
+// 定义；多方生态时按 K8s/OTel 惯例升前缀键）。引擎自身不解读这些键。
 import { getExecContext, globalUdfRegistry, pack, tool } from "@republicroad/zen-udf";
 
 import { Type } from "@sinclair/typebox";
@@ -27,10 +30,12 @@ export const customListQueryTool = tool({
   }),
   run: (input) => {
     const ctx = getExecContext();
-    if (!ctx?.tenantId) return { result: false };
+    // meta 键约定（批次 167）：宿主在 meta 提供 tenantId/userId
+    const tenantId = ctx?.meta?.tenantId;
+    if (typeof tenantId !== "string") return { result: false };
     const { hit } = queryValueList(input.list_name, input.value ?? null, {
-      tenantId: ctx.tenantId,
-      actor: ctx.userId,
+      tenantId,
+      actor: ctx?.meta?.userId as string | undefined,
     });
     return { result: hit };
   },

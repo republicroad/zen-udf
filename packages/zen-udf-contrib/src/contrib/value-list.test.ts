@@ -25,11 +25,11 @@ describe("value_list UDF（新旧名双注册）", () => {
         hit: boolean;
       }>;
     const [asA, asB] = await Promise.all([
-      runWithExecContext({ tenantId: "roster-tenant", userId: "udf-user-a" }, call),
-      runWithExecContext({ tenantId: "roster-tenant", userId: "udf-user-b" }, call),
+      runWithExecContext({ meta: { tenantId: "roster-tenant", userId: "udf-user-a" } }, call),
+      runWithExecContext({ meta: { tenantId: "roster-tenant", userId: "udf-user-b" } }, call),
     ]);
     const [newAsA] = await Promise.all([
-      runWithExecContext({ tenantId: "roster-tenant", userId: "udf-user-a" }, callNew),
+      runWithExecContext({ meta: { tenantId: "roster-tenant", userId: "udf-user-a" } }, callNew),
     ]);
     expect(newAsA.hit).toBe(true); // 新旧名同 store——新名查 udf-user-a 私有名单同命中
     expect(asA.hit).toBe(true);

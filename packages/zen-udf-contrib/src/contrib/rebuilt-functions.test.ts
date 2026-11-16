@@ -16,10 +16,10 @@ const call = <T>(name: string, args: unknown[]): Promise<T> =>
 describe("custom_list_query（D2 重建）", () => {
   test("名单命中返回 result:true，未命中 false（actor 隔离）", async () => {
     registerRoster({ name: "clq_list", items: ["v-hit"] }, { tenantId: "clq-tenant", actor: "clq-user" });
-    const hit = await runWithExecContext({ tenantId: "clq-tenant", userId: "clq-user" }, () =>
+    const hit = await runWithExecContext({ meta: { tenantId: "clq-tenant", userId: "clq-user" } }, () =>
       call<{ result: boolean }>("custom_list_query", ["clq_list", "v-hit"]),
     );
-    const miss = await runWithExecContext({ tenantId: "clq-tenant", userId: "clq-user" }, () =>
+    const miss = await runWithExecContext({ meta: { tenantId: "clq-tenant", userId: "clq-user" } }, () =>
       call<{ result: boolean }>("custom_list_query", ["clq_list", "v-miss"]),
     );
     expect(hit.result).toBe(true);
