@@ -13,6 +13,7 @@ const seen: { tag: string; tenant?: string; metaOk: boolean; metaModel?: string 
 function chain_probe() {
   const ctx = getExecContext();
   const entry = {
+    tag: "probe",
     tenant: ctx?.tenantId ?? null,
     metaOk: Boolean(ctx?.meta),
     metaModel: (ctx?.meta as { modelId?: string } | undefined)?.modelId ?? null,
@@ -58,7 +59,7 @@ describe("批次 166 · ExecContext 链式传播 + meta 存活", () => {
       await runtime.evaluateAsync(key, { x: 1 }, undefined, "v1");
     });
     expect(seen.length).toBe(2);
-    expect(seen[0]).toEqual({ tenant: "t-166", metaOk: true, metaModel: "m-9" });
-    expect(seen[1]).toEqual({ tenant: "t-166", metaOk: true, metaModel: "m-9" });
+    expect(seen[0]).toEqual({ tag: "probe", tenant: "t-166", metaOk: true, metaModel: "m-9" });
+    expect(seen[1]).toEqual({ tag: "probe", tenant: "t-166", metaOk: true, metaModel: "m-9" });
   });
 });
