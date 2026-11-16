@@ -41,17 +41,17 @@ const makeRuntime = (): { registry: UdfRegistry; runtime: DecisionRuntime } => {
 describe("AA3 输入序列化守卫", () => {
   test("NaN 输入 fail fast（不进入引擎，避免 serde 崩溃）", async () => {
     const { runtime } = makeRuntime();
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"));
       return Promise.resolve();
     });
 
-    await expect(runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: NaN }))).rejects.toThrow(
+    await expect(runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: NaN }))).rejects.toThrow(
       "non-finite number",
     );
 
     await expect(
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: Infinity })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: Infinity })),
     ).rejects.toThrow("non-finite number");
   });
 });
@@ -73,12 +73,12 @@ describe("AA4 批量评估", () => {
       return { runtime: new DecisionRuntime({ registry }) };
     })();
 
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"), "v1");
       return Promise.resolve();
     });
 
-    const results = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const results = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateMany("k", [
         { input: { x: 1 }, rev: "v1" },
         { input: { x: 2 }, rev: "v1" },
@@ -100,16 +100,16 @@ describe("AA4 批量评估", () => {
       registry,
       breaker: new InMemoryCircuitBreaker(1, 10_000),
     });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"));
       return Promise.resolve();
     });
 
-    const first = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 1 }));
+    const first = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 1 }));
     expect((first.result as { out?: { error?: string } }).out?.error).toContain("boom");
 
     // 熔断打开后快速失败（不再执行 UDF）
-    const second = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 2 }));
+    const second = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 2 }));
     expect((second.result as { out?: { error?: { code?: string } } }).out?.error?.code).toBe("CIRCUIT_OPEN");
   });
 });

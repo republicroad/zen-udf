@@ -59,8 +59,11 @@ const runtime = new DecisionRuntime({
   onDecision: (event) => auditLog.write(event), // 决策审计事件（Y2）
 });
 
-// 多租户：ExecContext 必须携带 tenantId（单租户 CLI 用 tenantExempt 豁免）
-await runWithExecContext({ tenantId: 't-1', userId: 'u-1', decisionId: 'dec-42' }, async () => {
+// 应用域身份住 meta 数据面（3.0.0）；分区隔离键经 partitionKey 提取器（宿主映射）
+const runtime = new DecisionRuntime({
+  partitionKey: (ctx) => (typeof ctx.meta?.tenantId === 'string' ? ctx.meta.tenantId : undefined),
+});
+await runWithExecContext({ meta: { tenantId: 't-1', userId: 'u-1' }, decisionId: 'dec-42' }, async () => {
   runtime.createDecisionWithCacheKey('fraud-model', graphJson, 'v3');
   const result = await runtime.evaluateAsync('fraud-model', { deviceId: 'dev-9' }, undefined, 'v3');
 });

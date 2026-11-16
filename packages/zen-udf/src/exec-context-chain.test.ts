@@ -14,7 +14,7 @@ function chain_probe() {
   const ctx = getExecContext();
   const entry = {
     tag: "probe",
-    tenant: ctx?.tenantId ?? null,
+    tenant: (ctx?.meta?.tenantId as string | undefined) ?? null,
     metaOk: Boolean(ctx?.meta),
     metaModel: (ctx?.meta as { modelId?: string } | undefined)?.modelId ?? null,
   };
@@ -54,7 +54,7 @@ describe("批次 166 · ExecContext 链式传播 + meta 通道存活", () => {
     registry.registerFunction(chain_probe, "chain_probe");
     const runtime = new DecisionRuntime({ registry });
     const key = "chain-ortho:1";
-    await runWithExecContext({ tenantId: "t-166", requestId: "req-166", meta: { modelId: "m-9" } }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t-166", requestId: "req-166", modelId: "m-9" } }, async () => {
       runtime.createDecisionWithCacheKey(key, chainGraph(), "v1");
       await runtime.evaluateAsync(key, { x: 1 }, undefined, "v1");
     });

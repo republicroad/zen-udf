@@ -51,7 +51,7 @@ const graph = (expressions: unknown[]) => ({
 const runNode = async (expressions: unknown[], input: unknown = {}) => {
   const runtime = makeRuntime();
   let outcome: unknown;
-  await runWithExecContext({ tenantId: "t" }, async () => {
+  await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
     runtime.createDecisionWithCacheKey("k", graph(expressions) as never, "v1");
     const r = await runtime.evaluateAsync("k", input, undefined, "v1");
     outcome = r.result;
@@ -140,7 +140,7 @@ describe("ADR-016 TypedValue 信封（参数值模式显式化）", () => {
       },
     );
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
       runtime.createDecisionWithCacheKey(
         "k",
         graph([

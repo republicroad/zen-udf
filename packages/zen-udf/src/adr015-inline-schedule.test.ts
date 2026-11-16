@@ -61,7 +61,7 @@ const runNode = async (expressions: unknown[], input: unknown = {}) => {
     ],
   };
   let outcome: unknown;
-  await runWithExecContext({ tenantId: "t" }, async () => {
+  await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
     runtime.createDecisionWithCacheKey("k", graph, "v1");
     const r = await runtime.evaluateAsync("k", input, undefined, "v1");
     outcome = r.result;
@@ -100,7 +100,7 @@ describe("ADR-015 增补：实例依赖调度（行内顺序求值进函数节�
         { id: "e2", sourceId: "c1", targetId: "out", type: "edge" },
       ],
     };
-    await runWithExecContext({ tenantId: "t" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
       runtime.createDecisionWithCacheKey("k", graph, "v1");
       await runtime.evaluateAsync("k", {}, undefined, "v1");
     });

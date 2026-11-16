@@ -39,11 +39,11 @@ describe("Y6 OTel 桥", () => {
     trace.setGlobalTracerProvider(provider);
 
     const runtime = makeRuntime(true);
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-otel"));
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 3 }));
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 3 }));
     await provider.forceFlush();
 
     const spans = exporter.getFinishedSpans();
@@ -61,11 +61,11 @@ describe("Y6 OTel 桥", () => {
     trace.setGlobalTracerProvider(provider);
 
     const runtime = makeRuntime(false);
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k2", graph("g-nootel"));
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k2", { x: 1 }));
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k2", { x: 1 }));
     await provider.forceFlush();
     expect(exporter.getFinishedSpans().length).toBe(0);
   });

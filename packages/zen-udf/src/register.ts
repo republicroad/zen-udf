@@ -119,16 +119,18 @@ interface UdfEntry {
 }
 
 /**
- * 单次工具调用的执行上下文（fn 的第二参数）：租户身份 + 取消信号。
+ * 单次工具调用的执行上下文（fn 的第二参数）：宿主数据面 + 取消信号。
  * signal 在 kwargs.timeout 到点或上游取消时 abort——重 I/O 函数（Redis/DB/HTTP）
  * 必须把它传给底层客户端，否则超时返回后底层调用仍占着连接继续执行。
  */
 export interface ToolContext {
   namespace?: string;
   name: string;
-  tenantId?: string;
-  userId?: string;
-  requestId?: string;
+  /**
+   * 宿主元数据（批次 167：应用域身份住数据面——多租户场景约定键 `tenantId`/
+   * `userId`/`meta.requestId`，工具按约定键自读；引擎不解读）
+   */
+  meta?: Record<string, unknown>;
   signal: AbortSignal;
   /** 绝对截止时间（epoch ms）；kwargs.timeout 缺省时为 null */
   deadlineAt: number | null;

@@ -4,6 +4,11 @@ import { DecisionRuntime } from "./engine.ts";
 import { getExecContext, runWithExecContext } from "./exec-context.ts";
 import { UdfRegistry } from "./register.ts";
 
+/** 参考分区提取器：meta.tenantId 约定键（批次 167） */
+const META_TENANT_PARTITION = (ctx: { meta?: Record<string, unknown> }): string | undefined =>
+  typeof ctx.meta?.tenantId === "string" ? ctx.meta.tenantId : undefined;
+
+
 /** customNode 图：ctx_probe_udf 回显执行上下文的租户与用户 */
 const ctxGraph = (id: string) => ({
   id,
@@ -27,11 +32,11 @@ const makeRuntime = (): DecisionRuntime => {
   const registry = new UdfRegistry();
   registry.registerFunction(function ctx_probe_udf() {
     return {
-      tenant: getExecContext()?.tenantId ?? null,
-      user: getExecContext()?.userId ?? null,
+      tenant: getExecContext()?.meta?.tenantId ?? null,
+      user: getExecContext()?.meta?.userId ?? null,
     };
   }, "probe");
-  return new DecisionRuntime({ registry });
+  return new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry });
 };
 
 describe("V5 上下文加固", () => {
@@ -41,7 +46,7 @@ describe("V5 上下文加固", () => {
     // 每租户各自注册（L1 缓存键含租户）
     await Promise.all(
       tenants.map((tenantId) =>
-        runWithExecContext({ tenantId }, () => {
+        runWithExecContext({ meta: { tenantId } }, () => {
           runtime.createDecisionWithCacheKey("k", ctxGraph("g-mixed"));
           return Promise.resolve();
         }),
@@ -50,7 +55,7 @@ describe("V5 上下文加固", () => {
 
     const results = await Promise.all(
       tenants.map((tenantId, i) =>
-        runWithExecContext({ tenantId, userId: `user-${i}` }, () => runtime.evaluateAsync("k", { x: i }, undefined)),
+        runWithExecContext({ meta: { tenantId, userId: `user-${i}` } }, () => runtime.evaluateAsync("k", { x: i }, undefined)),
       ),
     );
     results.forEach((result, i) => {
@@ -62,12 +67,12 @@ describe("V5 上下文加固", () => {
 
   test("嵌入的 ExecContext 为冻结副本：UDF 内篡改不影响调用方", async () => {
     const runtime = makeRuntime();
-    await runWithExecContext({ tenantId: "t-frozen" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-frozen" } }, () => {
       runtime.createDecisionWithCacheKey("k", ctxGraph("g-frozen"));
       return Promise.resolve();
     });
 
-    const sharedCtx = { tenantId: "t-frozen", userId: "u-1" };
+    const sharedCtx = { meta: { tenantId: "t-frozen", userId: "u-1" } };
     await runWithExecContext(sharedCtx, async () => {
       const result = await runtime.evaluateAsync("k", {});
       // UDF 内可见租户正确
@@ -78,16 +83,16 @@ describe("V5 上下文加固", () => {
     });
 
     // 调用方 ctx 未被图执行路径污染
-    expect(sharedCtx.tenantId).toBe("t-frozen");
-    expect(sharedCtx.userId).toBe("u-1");
+    expect(sharedCtx.meta.tenantId).toBe("t-frozen");
+    expect(sharedCtx.meta.userId).toBe("u-1");
     expect(Object.isFrozen(Object.freeze({ ...sharedCtx }))).toBe(true); // 冻结名义自检
   });
 
   test("冻结语义直接验证：embed 副本不可写", () => {
-    const copy = Object.freeze({ ...{ tenantId: "t-x" } });
+    const copy = Object.freeze({ meta: Object.freeze({ tenantId: "t-x" }) });
     expect(Object.isFrozen(copy)).toBe(true);
     expect(() => {
-      (copy as { tenantId?: string }).tenantId = "t-y";
+      (copy as { meta?: { tenantId?: string } }).meta!.tenantId = "t-y";
     }).toThrow(); // 严格模式下冻结对象赋值抛 TypeError
   });
 });

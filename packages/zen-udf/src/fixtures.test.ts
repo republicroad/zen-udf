@@ -198,7 +198,7 @@ describe("Y7 决策测试夹具运行器（ADR-014 executor 反转形态）", ()
 
   test("__fixtures__ 键隔离：同键宿主模型不被夹具覆盖", async () => {
     const runtime = makeRuntime();
-    await runWithExecContext({ tenantId: "fixtures" }, () => {
+    await runWithExecContext({ meta: { tenantId: "fixtures" } }, () => {
       runtime.createDecisionWithCacheKey("score-model", hostModel, "v1");
       return Promise.resolve();
     });
@@ -211,7 +211,7 @@ describe("Y7 决策测试夹具运行器（ADR-014 executor 反转形态）", ()
 
     // 宿主键未被覆盖：同键同 rev 求值仍是宿主直通模型（标记透传）；
     // 若被夹具模型覆盖，输出会是 {score, flag, x, flagged} 而非标记
-    const hostOutcome = await runWithExecContext({ tenantId: "fixtures" }, () =>
+    const hostOutcome = await runWithExecContext({ meta: { tenantId: "fixtures" } }, () =>
       runtime.evaluateAsync("score-model", { hostMarker: "keep" }, undefined, "v1"),
     );
     expect(hostOutcome.result).toMatchObject({ hostMarker: "keep" });

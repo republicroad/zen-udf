@@ -4,6 +4,11 @@ import { DecisionCache } from "./decision-cache.ts";
 import { DecisionRuntime } from "./engine.ts";
 import { runWithExecContext } from "./exec-context.ts";
 
+/** 参考分区提取器：meta.tenantId 约定键（批次 167） */
+const META_TENANT_PARTITION = (ctx: { meta?: Record<string, unknown> }): string | undefined =>
+  typeof ctx.meta?.tenantId === "string" ? ctx.meta.tenantId : undefined;
+
+
 const makeEntry = (v: number) => ({ decision: v as unknown as never, content: v });
 
 describe("DecisionCache（U4 L1 缓存机制）", () => {
@@ -92,30 +97,30 @@ describe("DecisionRuntime L1 缓存接入（U4）", () => {
   };
 
   test("缓存键按租户隔离：同 key 不同租户互不可见", async () => {
-    const runtime = new DecisionRuntime({});
-    await runWithExecContext({ tenantId: "t-1" }, async () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION });
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, async () => {
       runtime.createDecisionWithCacheKey("model", structuredClone(graph));
     });
 
     // t-2 命中不了 t-1 的条目
-    await expect(runWithExecContext({ tenantId: "t-2" }, () => runtime.evaluateAsync("model", {}))).rejects.toThrow(
+    await expect(runWithExecContext({ meta: { tenantId: "t-2" } }, () => runtime.evaluateAsync("model", {}))).rejects.toThrow(
       /not found, please use createDecisionWithCacheKey/,
     );
 
     // t-1 正常命中
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("model", {}));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("model", {}));
     expect(result.result).toBeDefined();
   });
 
   test("同租户同 key 不同 rev 并存", async () => {
-    const runtime = new DecisionRuntime({});
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION });
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("model", structuredClone(graph), "v1");
       runtime.createDecisionWithCacheKey("model", structuredClone(graph), "v2");
       return Promise.resolve();
     });
 
-    await runWithExecContext({ tenantId: "t-1" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, async () => {
       expect(runtime.getDecisionCache("model", "v1")).toBeDefined();
       expect(runtime.getDecisionCache("model", "v2")).toBeDefined();
       expect(runtime.getContentCache("model")).toBeUndefined(); // 缺省 rev=latest → 未创建
@@ -124,15 +129,15 @@ describe("DecisionRuntime L1 缓存接入（U4）", () => {
   });
 
   test("update/delete 按 rev 定位，latest 互不干扰", async () => {
-    const runtime = new DecisionRuntime({});
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION });
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("m", structuredClone(graph), "v1");
       runtime.updateDecisionWithCacheKey("m", structuredClone(graph), "v1");
       runtime.deleteDecisionWithCacheKey("m", "v1");
       return Promise.resolve();
     });
 
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       expect(runtime.getDecisionCache("m", "v1")).toBeUndefined();
       return Promise.resolve();
     });

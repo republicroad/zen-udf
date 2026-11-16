@@ -34,7 +34,7 @@ const dtGraph = (colField: string | null, cell: string, out: string) => ({
 
 const evaluate = async (key: string, graph: unknown, input: unknown) => {
   const runtime = new DecisionRuntime({ registry: new (await import("./register.ts")).UdfRegistry() });
-  return runWithExecContext({ tenantId: "t" }, async () => {
+  return runWithExecContext({ meta: { tenantId: "t" } }, async () => {
     runtime.createDecisionWithCacheKey(key, graph as never, "v1");
     return runtime.evaluateAsync(key, input, undefined, "v1");
   });

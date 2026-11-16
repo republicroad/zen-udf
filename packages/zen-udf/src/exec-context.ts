@@ -1,41 +1,47 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
+/**
+ * 执行上下文（批次 167 立法：typed = 控制面，meta = 数据面）。
+ *
+ * zen-udf 是通用的 zen-engine 自定义节点上下文传递机制——应用域概念
+ * （多租户命名空间隔离等）不占 typed 字段面，宿主业务经 meta 自维护。
+ * 分区隔离键（缓存/熔断/并发闸/审计与指标事件）经 DecisionRuntime 的
+ * partitionKey 提取器端口从宿主侧供给（引擎自身零应用域概念、不读 meta）。
+ */
 export interface ExecContext {
-  /** 租户标识：多租户运行时强制要求（见 DecisionRuntime.evaluate 入口校验） */
-  tenantId?: string;
-  userId?: string;
-  requestId?: string;
-  /** 决策幂等键（Y2）：审计事件主键；act 类效果的幂等去重依据 */
-  decisionId?: string;
-  /** 事件时间（Y2，ISO 字符串）：审计 asOf 与 observe/query 类算子的事件时间锚点；缺省 = 处理时间 */
-  eventTime?: string;
-  /** 回放模式（Y3）：设置后 observe/act 类 UDF 不重执行，从 journal 读回当时返回值 */
+  // ── 控制面（引擎读，宿主构造）────────────────────────────────
+
+  /** 行为开关（Y3 回放）：设置后 observe/act 类 UDF 不重执行，从 journal 读回当时返回值 */
   replay?: ReplayContext;
-  /** 影子评估标记（AA1）：observe/query 照常执行；act 返回 intent 占位（不双次处置）。影子侧不产生审计事件 */
+  /** 行为开关（AA1 影子评估）：observe/query 照常执行；act 返回 intent 占位（不双次处置）。影子侧不产生审计事件 */
   shadow?: { prodRev: string };
-  /** observe memo 帧 id（批次 80 修订）：**仅影子帧持有**（evaluateShadow 创建的
-   *  shadowMemoId，低频试跑场景）——生产热路径缺位即旁路（用户裁定：热路径不埋
-   *  无业界先例机制）。id 跨冻结副本/TSFN 克隆保真（journalId 同款），影子腿内
-   *  跨节点命中同一 memo Map；影子评估结束即清理 */
-  observeMemoId?: string;
+  /** 审计锚（Y2）：决策幂等键——审计事件主键；act 类效果的幂等去重依据 */
+  decisionId?: string;
+  /** 审计锚（Y2，ISO 字符串）：审计 asOf 与 observe/query 类算子的事件时间锚点；缺省 = 处理时间 */
+  eventTime?: string;
   /**
-   * 显式单租户豁免：置 true 后 evaluate 入口不再强制 tenantId，
-   * 仅限 CLI / 本地 / 单租户部署使用；多租户服务端禁止开启。
-   */
-  tenantExempt?: boolean;
-  /**
-   * 审计 journal 通道（Y2 免 trace 化，内部）：本次执行的 journal 注册表 opaque id。
-   * 随冻结副本跨 TSFN 传播，handleCustomNode 据其把 UDF 轨迹写入自记账 journal——
-   * 副本只透传 id，journal 本体不可被图表达式触及（§5 篡改加固性质保持）。
+   * 机制 id（@internal，引擎自产宿主仅透传——勿手工构造）：本次执行的 journal
+   * 注册表 opaque id。随 TSFN 克隆传播，handleCustomNode 据其把 UDF 轨迹写入
+   * 自记账 journal——副本只透传 id，journal 本体不可被图表达式触及。
    */
   journalId?: string;
   /**
-   * 宿主元数据通道（上游提案 upstream-zen-udf-exec-context-meta.md，OTel
-   * baggage 同款）：任意 JSON-able k/v，随 ALS/TSFN 克隆传播。三契约：
-   * ① 引擎语义【不读】此通道（data/control 分离——引擎行为只由 typed 字段驱动）；
+   * 机制 id（@internal，引擎自产宿主仅透传——勿手工构造；批次 80 修订）：
+   * **仅影子帧持有**（evaluateShadow 创建的 shadowMemoId，低频试跑场景）——
+   * 生产热路径缺位即旁路。id 跨 TSFN 克隆保真，影子腿内跨节点命中同一 memo Map。
+   */
+  observeMemoId?: string;
+
+  // ── 数据面（引擎永不读，宿主业务自维护）──────────────────────
+
+  /**
+   * 宿主元数据开放通道（OTel baggage 同款）：任意 JSON-able k/v，随 ALS/TSFN
+   * 克隆传播。三契约：① 引擎语义【不读】此通道（data/control 分离——引擎行为
+   * 只由 typed 字段与 partitionKey 提取器驱动，且提取器是宿主自己的函数）；
    * ② 值必须可结构化克隆（JSON-able：禁函数/类实例/symbol——TSFN serde 边界）；
    * ③ 体积建议上限 4KB（实现不强制）。
-   * 消费方 = 工具/宿主经 getExecContext()?.meta；
+   * 消费方 = 工具/宿主经 getExecContext()?.meta；参考域约定键（contrib）：
+   * `tenantId`/`userId`——多租户命名空间隔离等应用模式概念住这里。
    * 升格规则：某键被引擎语义依赖时 MUST 升格为 typed 字段（需 ADR）。
    */
   meta?: Record<string, unknown>;

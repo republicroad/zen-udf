@@ -23,7 +23,7 @@ const graph = {
 };
 
 const evalOut = async (runtime: DecisionRuntime): Promise<string | undefined> => {
-  const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}));
+  const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}));
   return (result.result as { out?: { error?: string } }).out?.error;
 };
 
@@ -35,7 +35,7 @@ describe("V4 表达式错误脱敏（§6.7）", () => {
       throw new Error("read failed at C:\\Users\\op\\secret.txt with token supersecret42");
     }, "target");
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph);
       return Promise.resolve();
     });
@@ -55,7 +55,7 @@ describe("V4 表达式错误脱敏（§6.7）", () => {
       throw new Error("plain message");
     }, "target");
     const runtime = new DecisionRuntime({ registry, sanitizer: () => "[redacted]" });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph);
       return Promise.resolve();
     });

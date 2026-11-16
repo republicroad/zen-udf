@@ -5,6 +5,11 @@ import { type DecisionAuditEvent, DecisionRuntime } from "./engine.ts";
 import { runWithExecContext } from "./exec-context.ts";
 import { UdfRegistry } from "./register.ts";
 
+/** 参考分区提取器：meta.tenantId 约定键（批次 167） */
+const META_TENANT_PARTITION = (ctx: { meta?: Record<string, unknown> }): string | undefined =>
+  typeof ctx.meta?.tenantId === "string" ? ctx.meta.tenantId : undefined;
+
+
 /** 三语义混合图：query / observe / act 各一个表达式 */
 const mixedGraph = (id: string) => ({
   id,
@@ -69,12 +74,12 @@ const TENANT = "audit-tenant";
 const evaluateOnce = async (input: unknown): Promise<{ audit: DecisionAuditEvent; result: unknown; spies: Spies }> => {
   const events: DecisionAuditEvent[] = [];
   const { registry, spies } = makeRegistry();
-  const runtime = new DecisionRuntime({ registry, onDecision: (e) => events.push(e) });
-  await runWithExecContext({ tenantId: TENANT, decisionId: "dec-1" }, () => {
+  const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, onDecision: (e) => events.push(e) });
+  await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-1" }, () => {
     runtime.createDecisionWithCacheKey("k", mixedGraph("g"), "v1");
     return Promise.resolve();
   });
-  const result = await runWithExecContext({ tenantId: TENANT, userId: "u-1", decisionId: "dec-1" }, () =>
+  const result = await runWithExecContext({ meta: { tenantId: TENANT, userId: "u-1" }, decisionId: "dec-1" }, () =>
     runtime.evaluateAsync("k", input, undefined, "v1"),
   );
   return { audit: events[events.length - 1], result: result.result, spies };
@@ -85,7 +90,7 @@ describe("Y2 决策审计事件", () => {
     const input = { x: 7 };
     const { audit } = await evaluateOnce(input);
     expect(audit.decisionId).toBe("dec-1");
-    expect(audit.tenantId).toBe(TENANT);
+    expect(audit.partition).toBe(TENANT);
     expect(audit.key).toBe("k");
     expect(audit.rev).toBe("v1");
     expect(audit.inputHash).toBe(createHash("sha256").update(JSON.stringify(input)).digest("hex"));
@@ -103,12 +108,12 @@ describe("Y2 决策审计事件", () => {
 
   test("未配置 onDecision 时无审计且 trace 不强制", async () => {
     const { registry, spies } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g2"));
       return Promise.resolve();
     });
-    const result = await runWithExecContext({ tenantId: TENANT }, () => runtime.evaluateAsync("k", { x: 1 }));
+    const result = await runWithExecContext({ meta: { tenantId: TENANT } }, () => runtime.evaluateAsync("k", { x: 1 }));
     expect(result.trace).toBeUndefined();
     expect(spies.observeCalls).toBeGreaterThan(0);
   });
@@ -116,13 +121,13 @@ describe("Y2 决策审计事件", () => {
   test("Y2 免 trace 化：配置审计且不传 trace 选项——observed 仍完整、引擎 trace 不强制开启", async () => {
     const events: DecisionAuditEvent[] = [];
     const { registry, spies } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry, onDecision: (e) => events.push(e) });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, onDecision: (e) => events.push(e) });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey("k3", mixedGraph("g3"), "v1");
       return Promise.resolve();
     });
     // 关键断言：options 不带任何 trace/debug 诉求（生产高频调用形态）
-    const result = await runWithExecContext({ tenantId: TENANT, decisionId: "dec-1" }, () =>
+    const result = await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-1" }, () =>
       runtime.evaluateAsync("k3", { x: 9 }, undefined, "v1"),
     );
     // 引擎 trace 未被强制开启——上游 traceData 成本不再随审计产生
@@ -146,11 +151,11 @@ describe("Y2 决策审计事件", () => {
         throw new Error("sink down");
       },
     });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g3"));
       return Promise.resolve();
     });
-    const result = await runWithExecContext({ tenantId: TENANT }, () => runtime.evaluateAsync("k", { x: 2 }));
+    const result = await runWithExecContext({ meta: { tenantId: TENANT } }, () => runtime.evaluateAsync("k", { x: 2 }));
     expect(result.result).toBeDefined();
   });
 });
@@ -159,21 +164,21 @@ describe("Y3 replay 模式（确定性回放）", () => {
   test("observe/act 不重执行（journal 读回），query 以 asOf 重算，结论一致", async () => {
     const events: DecisionAuditEvent[] = [];
     const { registry, spies } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry, onDecision: (e) => events.push(e) });
-    await runWithExecContext({ tenantId: TENANT, decisionId: "dec-9", eventTime: "2026-09-13T00:00:00Z" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, onDecision: (e) => events.push(e) });
+    await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-9", eventTime: "2026-09-13T00:00:00Z" }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g"), "v1");
       return Promise.resolve();
     });
     const input = { x: 7 };
-    await runWithExecContext({ tenantId: TENANT, userId: "u-1", decisionId: "dec-9" }, () =>
+    await runWithExecContext({ meta: { tenantId: TENANT, userId: "u-1" }, decisionId: "dec-9" }, () =>
       runtime.evaluateAsync("k", input, undefined, "v1"),
     );
     const original = events[events.length - 1];
     const before = { ...spies };
 
     // 回放：新 runtime 实例（热层状态清零）+ 原审计 journal
-    const replayRuntime = new DecisionRuntime({ registry: makeRegistry().registry });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const replayRuntime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry: makeRegistry().registry });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       replayRuntime.createDecisionWithCacheKey("k", mixedGraph("g-replay"), "v1");
       return Promise.resolve();
     });
@@ -187,15 +192,15 @@ describe("Y3 replay 模式（确定性回放）", () => {
 
   test("journal 缺失 → REPLAY_JOURNAL_MISS fail closed", async () => {
     const { registry } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g"), "v1");
       return Promise.resolve();
     });
 
     await runWithExecContext(
       {
-        tenantId: TENANT,
+        meta: { tenantId: TENANT },
         replay: {
           decisionId: "dec-x",
           asOf: "2026-09-13T00:00:00Z",
@@ -213,7 +218,7 @@ describe("Y3 replay 模式（确定性回放）", () => {
   test("evaluateReplay：输入哈希不匹配时抛错（trust 语义）", async () => {
     const audit: DecisionAuditEvent = {
       decisionId: "d-1",
-      tenantId: TENANT,
+      meta: { tenantId: TENANT },
       key: "k",
       rev: "v1",
       inputHash: "deadbeef",
@@ -228,8 +233,8 @@ describe("Y3 replay 模式（确定性回放）", () => {
 
   async function runtime_evaluateReplay(audit: DecisionAuditEvent, input: unknown) {
     const { registry } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey(audit.key, mixedGraph("g"), audit.rev);
       return Promise.resolve();
     });
@@ -242,12 +247,12 @@ describe("1.0 审计哈希链与 journalVersion", () => {
     const { createHash } = await import("node:crypto");
     const events: DecisionAuditEvent[] = [];
     const { registry } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry, onDecision: (e) => events.push(e) });
-    await runWithExecContext({ tenantId: TENANT, decisionId: "dec-chain" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, onDecision: (e) => events.push(e) });
+    await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-chain" }, () => {
       runtime.createDecisionWithCacheKey("kc", mixedGraph("gc"), "v1");
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: TENANT, decisionId: "dec-chain" }, () =>
+    await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-chain" }, () =>
       runtime.evaluateAsync("kc", { x: 5 }, undefined, "v1"),
     );
     const audit = events[events.length - 1]!;
@@ -271,12 +276,12 @@ describe("1.0 审计哈希链与 journalVersion", () => {
   test("act 语义快照 MUST NOT 携带入参载荷（结构面：observed 无入参字段）", async () => {
     const events: DecisionAuditEvent[] = [];
     const { registry } = makeRegistry();
-    const runtime = new DecisionRuntime({ registry, onDecision: (e) => events.push(e) });
-    await runWithExecContext({ tenantId: TENANT, decisionId: "dec-ni" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, onDecision: (e) => events.push(e) });
+    await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-ni" }, () => {
       runtime.createDecisionWithCacheKey("kn", mixedGraph("gn"), "v1");
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: TENANT, decisionId: "dec-ni" }, () =>
+    await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-ni" }, () =>
       runtime.evaluateAsync("kn", { x: 3, secretPayload: "SENSITIVE" }, undefined, "v1"),
     );
     const audit = events[events.length - 1]!;
@@ -298,12 +303,12 @@ describe("回放钉扎（1.5.0）", () => {
     const events: DecisionAuditEvent[] = [];
     const { registry } = makeRegistry();
     registry.setPackMeta("probe", { origin: "reference", version: "1.2.3" });
-    const runtime = new DecisionRuntime({ registry, onDecision: (e) => events.push(e) });
-    await runWithExecContext({ tenantId: TENANT, decisionId: "dec-pin" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, onDecision: (e) => events.push(e) });
+    await runWithExecContext({ meta: { tenantId: TENANT }, decisionId: "dec-pin" }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g"), "v1");
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: TENANT, userId: "u-1", decisionId: "dec-pin" }, () =>
+    await runWithExecContext({ meta: { tenantId: TENANT, userId: "u-1" }, decisionId: "dec-pin" }, () =>
       runtime.evaluateAsync("k", { x: 7 }, undefined, "v1"),
     );
     const audit = events[events.length - 1];
@@ -319,14 +324,14 @@ describe("回放钉扎（1.5.0）", () => {
   test("journal packVersion ≠ 当前注册表版本 → REPLAY_PIN_MISMATCH fail visible", async () => {
     const { registry } = makeRegistry();
     registry.setPackMeta("probe", { origin: "reference", version: "2.0.0" });
-    const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g"), "v1");
       return Promise.resolve();
     });
     await runWithExecContext(
       {
-        tenantId: TENANT,
+        meta: { tenantId: TENANT },
         replay: {
           decisionId: "dec-pin",
           asOf: "2026-09-13T00:00:00Z",
@@ -344,14 +349,14 @@ describe("回放钉扎（1.5.0）", () => {
   test("journal packVersion 与当前一致 → 正常读回（REPLAYED 语义不变）", async () => {
     const { registry } = makeRegistry();
     registry.setPackMeta("probe", { origin: "reference", version: "2.0.0" });
-    const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: TENANT }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry });
+    await runWithExecContext({ meta: { tenantId: TENANT } }, () => {
       runtime.createDecisionWithCacheKey("k", mixedGraph("g"), "v1");
       return Promise.resolve();
     });
     await runWithExecContext(
       {
-        tenantId: TENANT,
+        meta: { tenantId: TENANT },
         replay: {
           decisionId: "dec-pin",
           asOf: "2026-09-13T00:00:00Z",

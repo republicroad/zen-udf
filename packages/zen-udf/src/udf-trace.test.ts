@@ -52,12 +52,12 @@ describe("V2 返回值契约（resultValidation）", () => {
   test("warn（缺省）：违例结果原样下发，traceData 记 INVALID_RESULT", async () => {
     const registry = makeRegistry(() => "not-an-object");
     const runtime = new DecisionRuntime({ registry }); // 缺省 warn
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-warn"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}, { trace: true }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}, { trace: true }));
     expect((result.result as { out?: unknown }).out).toBe("not-an-object"); // 行为不变
     const trace = firstUdfTrace(result);
     expect(trace?.code).toBe("INVALID_RESULT");
@@ -67,12 +67,12 @@ describe("V2 返回值契约（resultValidation）", () => {
   test("enforce：违例结果替换为 INVALID_RESULT 结构化错误", async () => {
     const registry = makeRegistry(() => "not-an-object");
     const runtime = new DecisionRuntime({ registry, resultValidation: "enforce" });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-enforce"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}, { trace: true }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}, { trace: true }));
     const out = (result.result as { out?: { error?: { code?: string } } }).out;
     expect(out?.error?.code).toBe("INVALID_RESULT");
     expect(firstUdfTrace(result)?.code).toBe("INVALID_RESULT");
@@ -81,12 +81,12 @@ describe("V2 返回值契约（resultValidation）", () => {
   test("off：不校验不记违例", async () => {
     const registry = makeRegistry(() => "not-an-object");
     const runtime = new DecisionRuntime({ registry, resultValidation: "off" });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-off"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}, { trace: true }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}, { trace: true }));
     expect((result.result as { out?: unknown }).out).toBe("not-an-object");
     expect(firstUdfTrace(result)?.code).toBeUndefined();
   });
@@ -94,12 +94,12 @@ describe("V2 返回值契约（resultValidation）", () => {
   test("合规返回值不产生违例记录", async () => {
     const registry = makeRegistry(() => ({ ok: true }));
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-ok"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}, { trace: true }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}, { trace: true }));
     expect(firstUdfTrace(result)?.code).toBeUndefined();
   });
 });
@@ -108,12 +108,12 @@ describe("V3 UDF 级 traceData", () => {
   test("正常调用记录 key/name/micros", async () => {
     const registry = makeRegistry(() => ({ ok: true }));
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-trace"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}, { trace: true }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}, { trace: true }));
     const trace = firstUdfTrace(result);
     expect(trace?.key).toBe("out");
     expect(trace?.name).toBe("target_udf");
@@ -126,12 +126,12 @@ describe("V3 UDF 级 traceData", () => {
       return 12345;
     }, "target");
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-noschema"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", {}, { trace: true }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", {}, { trace: true }));
     expect(firstUdfTrace(result)?.code).toBeUndefined();
   });
 });

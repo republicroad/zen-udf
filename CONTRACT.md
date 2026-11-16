@@ -129,22 +129,52 @@ example 生成三条 conformance 断言（§7）：input 经 §5.2 校验通过�
 
 - **脱敏**：错误信息 MUST 经脱敏管道（路径/凭证类值替换为占位）后暴露。
 
-### 5.5 执行上下文通道（ExecContext，2.3.0）
+### 5.5 执行上下文通道（ExecContext，3.0.0 立法形态）
 
-执行环境上下文（租户/请求/回放/影子等）对**每个自定义节点可达**，与
-passThrough（仅约束节点输出是否透传输入）正交。通道分两层：
+zen-udf 是**通用的 zen-engine 自定义节点上下文传递机制**——应用域概念（多租户
+命名空间隔离等）不占 typed 字段面。字段按 data/control 分离立法分两面：
 
-- **进程内**：`getExecContext()` / `runWithExecContext(ctx, fn)`（AsyncLocalStorage）；
-- **跨内核边界**（ALS 不跨 TSFN 存活）：宿主经 `evaluate(context, opts, execCtx)`
-  第三参下发 → zen fork 内核 `CustomNodeRequest.executionContext` 送达 handler →
-  `handleCustomNode` 提取后 `runWithExecContext` 重建 ALS。裸 `createDecision()
-  .evaluate()` 不经宿主包装 = 无上下文（匿名求值形态，已知边界非缺陷）。
+**控制面（引擎读，宿主构造；typed）**
 
-历史机制保留键 `__zen_udf_exec_ctx__`（ExecContext 嵌入 input 随数据面流动、
-出口剥离）**已退役**（2.3.0）——执行上下文与 input 混流不利于规则治理与作用域
-隔离；退役过程与衰减排查见 `docs/design/zen-udf-batch166-passthrough-attenuation.md`
-§7。`ExecContext.meta`（`Record<string, unknown>`）为宿主元数据的开放通道，
-引擎不读；键升格为类型化字段仅当引擎语义依赖它（需 ADR）。
+| 字段 | 引擎读取点 | 语义 |
+| --- | --- | --- |
+| `replay` | executeExpr（Y3 闸） | 行为开关：observe/act 不重执行，读 journal |
+| `shadow` | executeExpr（AA1 闸） | 行为开关：act 影子侧 intent 占位 |
+| `decisionId` | emitAudit + replay 重建 | 审计主键 / act 幂等依据 |
+| `eventTime` | emitAudit + replay 重建 | 审计 asOf / 事件时间锚（引擎+工具双消费，留 typed） |
+| `journalId` `@internal` | handleCustomNode journal 写回 | 引擎自产自销 opaque id（宿主仅透传） |
+| `observeMemoId` `@internal` | executeExpr memo 闸 | 引擎自产自销（影子帧） |
+
+**数据面（引擎永不读；宿主业务自维护）**
+
+| 字段 | 语义 |
+| --- | --- |
+| `meta` | 宿主元数据开放通道（OTel baggage 同款）：任意 JSON-able k/v 随 ALS/TSFN 克隆传播；参考域约定键 `tenantId`/`userId`（多租户场景）由宿主在构造点注入、工具按约定键自读 |
+
+**分区隔离端口（3.0.0）**：引擎自身机制（决策缓存键/熔断器/并发闸/审计与指标
+事件）的隔离键唯一来源 = `DecisionRuntime` 的 `partitionKey?: (ctx) => string |
+undefined` **提取器端口**——宿主一行接租户（`(ctx) => String(ctx.meta?.tenantId
+?? "")`），引擎自身零应用域概念、不读 meta（读 meta 的是宿主自己的函数）。
+可选 `requirePartition` 门（分区缺失 fail-closed）泛化替代历史的多租户入口
+强制；缺省 false = 宿主自管。分区缺失形态：缓存键退化 `:key@rev` 全局共享、
+熔断/并发闸全局段。
+
+**业界最佳实践判据（立法出处）**：
+1. 引擎语义 typed / 应用数据开放袋——OTel Baggage、gRPC metadata、Kafka headers、Temporal memo 同构；
+2. 隔离键显式声明禁 ambient——Stripe named rate limiter、Flink state descriptor、Envoy RLS descriptor；
+3. 横切守卫在宿主边界层——Spring Security filter chain、gRPC interceptor；
+4. 开放袋键名约定文档化，多方化时才前缀化——K8s annotations / OTel semconv。
+
+**通道分层**（与 2.3.0 一致）：进程内 `getExecContext()`/`runWithExecContext`
+（ALS）；跨内核边界经原生 `execution_context` 通道（evaluate 第三参 → 内核
+`CustomNodeRequest.executionContext` → handler 重建 ALS）。历史保留键
+`__zen_udf_exec_ctx__` 已于 2.3.0 退役（见
+`docs/design/zen-udf-batch166-passthrough-attenuation.md` §7）。
+
+**升格/降格规则**：键被引擎语义依赖时 MUST 升格 typed（需 ADR）；引擎消费
+消失时可降格 meta（需 ADR——3.0.0 即 tenantId/userId/requestId/tenantExempt
+降格记录）。宿主不得在 meta 塞与 typed 控制面同名的对抗键篡改引擎行为——
+引擎控制面读取只认 typed 字段，meta 永不参与引擎判定。
 
 ## 6. 执行策略边界（机制/策略分界）
 
@@ -379,7 +409,7 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 | -------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------- |
 | **Profile A · 核心执行**   | §3 声明契约 + §5 执行三动作（validate/bind/call）+ §11 调用形态双读 + §10 夹具契约                | §7 全量 fixtures 通过     |
 | **Profile B · 信任链**     | A + Y3 回放（journal 垫回/asOf/REPLAY_JOURNAL_MISS fail-closed）+ 审计哈希链与 journalDigest 重算 | §10 夹具 + 回放一致性断言 |
-| **Profile C · 服务端全量** | B + 多租户 ExecContext + 端口面（§6）+ 实例依赖调度（§11.5）+ breaker/limiter/审计                | 全量 1100 用例            |
+| **Profile C · 服务端全量** | B + 分区端口 + meta 约定键（§5.5）+ 端口面（§6）+ 实例依赖调度（§11.5）+ breaker/limiter/审计       | 全量 1100 用例            |
 
 多语言移植版按目标部署面选档认证；档位明示于实现的兼容性声明中。
 
@@ -399,7 +429,7 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 
 - **声明层级（OQ1 裁定）**：pack 级缺省（pack meta）+ tool 级覆盖；tool 声明
   `undefined` = 透传不冻结缺省，解析统一在注册面 schema 归一；
-- **幂等键单源**：有状态调用的幂等键 = `ExecContext.requestId` 贯穿（与 ADR-002
+- **幂等键单源**：有状态调用的幂等键 = `meta.requestId`（宿主约定键，批次 167）贯穿（与 ADR-002
   构造期捕获同构）；tool 级参数覆盖不做（防双键并行去重漂移）。
 
 ### 13.2 replay 路径强制（时间档位运行时）

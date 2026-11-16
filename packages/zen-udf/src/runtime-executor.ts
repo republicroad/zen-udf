@@ -15,6 +15,9 @@ export const createRuntimeExecutor = (
   runtime: DecisionRuntime,
   options: { key: string; model: string | object; rev?: string; tenantId?: string },
 ): DecisionTestExecutor => {
+  // 夹具租户标识走 meta 数据面（批次 167：参考域约定键 `meta.tenantId`）——
+  // 分区派生仍由 runtime 的 partitionKey 提取器决定（宿主配置了才分区，
+  // 未配置 = 夹具键全局共享，单租户测试形态零影响）
   const tenantId = options.tenantId ?? "fixtures";
   const rev = options.rev ?? "latest";
   const cacheKey = `${FIXTURES_KEY_PREFIX}${options.key}`;
@@ -22,7 +25,7 @@ export const createRuntimeExecutor = (
   let registration: Promise<void> | null = null;
 
   const ensureRegistered = (): Promise<void> => {
-    registration ??= runWithExecContext({ tenantId }, async () => {
+    registration ??= runWithExecContext({ meta: { tenantId } }, async () => {
       try {
         runtime.createDecisionWithCacheKey(cacheKey, options.model, rev);
       } catch {
@@ -36,7 +39,7 @@ export const createRuntimeExecutor = (
     await ensureRegistered();
     const startedAt = Date.now();
     const execCtx: ExecContext = {
-      tenantId,
+      meta: { tenantId },
       decisionId: `fixture:${fixture.name}`,
       ...(fixture.asOf ? { eventTime: fixture.asOf } : {}),
       ...(fixture.journal

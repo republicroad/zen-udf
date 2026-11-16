@@ -6,6 +6,11 @@ import { runWithExecContext } from "./exec-context.ts";
 import { InMemoryConcurrencyLimiter } from "./limiter.ts";
 import { UdfRegistry } from "./register.ts";
 
+/** 参考分区提取器：meta.tenantId 约定键（批次 167） */
+const META_TENANT_PARTITION = (ctx: { meta?: Record<string, unknown> }): string | undefined =>
+  typeof ctx.meta?.tenantId === "string" ? ctx.meta.tenantId : undefined;
+
+
 const graph = (id: string, expr = "probe_udf;;x") => ({
   id,
   nodes: [
@@ -31,6 +36,7 @@ const makeRuntime = (
 ): { runtime: DecisionRuntime; events: MetricsEvent[] } => {
   const events: MetricsEvent[] = [];
   const runtime = new DecisionRuntime({
+    partitionKey: META_TENANT_PARTITION,
     registry,
     metrics: (event) => events.push(event),
     ...extra,
@@ -39,22 +45,22 @@ const makeRuntime = (
 };
 
 describe("BB5 统一观测接口", () => {
-  test("udf 事件：name/tenantId/micros 齐全", async () => {
+  test("udf 事件：name/partition/micros 齐全", async () => {
     const registry = new UdfRegistry();
     registry.registerFunction(function probe_udf(kwargs: Record<string, unknown>) {
       return { plus: Number(kwargs?.x ?? 0) + 1 };
     }, "probe");
     const { runtime, events } = makeRuntime(registry);
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"), "v1");
       return Promise.resolve();
     });
-    await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 1 }, undefined, "v1"));
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 1 }, undefined, "v1"));
 
     const udfEvents = events.filter((e) => e.kind === "udf");
     expect(udfEvents.length).toBeGreaterThan(0);
     const last = udfEvents[udfEvents.length - 1];
-    expect(last).toMatchObject({ kind: "udf", name: "probe_udf", tenantId: "t-1" });
+    expect(last).toMatchObject({ kind: "udf", name: "probe_udf", partition: "t-1" });
     expect((last as { micros: number }).micros).toBeGreaterThanOrEqual(0);
   });
 
@@ -65,13 +71,13 @@ describe("BB5 统一观测接口", () => {
     }, "probe");
     const breaker = new InMemoryCircuitBreaker(1, 10_000);
     const { runtime, events } = makeRuntime(registry, { breaker });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-cb", "boom_udf;;x"));
       return Promise.resolve();
     });
 
-    await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 1 })); // 触发熔断
-    await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 2 })); // 快速失败
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 1 })); // 触发熔断
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 2 })); // 快速失败
 
     console.log("CEV=" + JSON.stringify(events));
     const circuitEvents = events.filter((e) => e.kind === "circuit");
@@ -86,14 +92,14 @@ describe("BB5 统一观测接口", () => {
     }, "probe");
     const limiter = new InMemoryConcurrencyLimiter(1);
     const { runtime, events } = makeRuntime(registry, { limiter });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-lim"), "v1");
       return Promise.resolve();
     });
 
     await Promise.all([
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 1 }, undefined, "v1")),
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 2 }, undefined, "v1")),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 1 }, undefined, "v1")),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 2 }, undefined, "v1")),
     ]);
     const limiterEvents = events.filter((e) => e.kind === "limiter");
     expect(limiterEvents.length).toBeGreaterThanOrEqual(1);

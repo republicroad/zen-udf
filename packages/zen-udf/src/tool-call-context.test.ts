@@ -40,7 +40,7 @@ describe("ToolContext（fn 第二参数）", () => {
     );
     const runtime = new DecisionRuntime({ registry });
     const before = Date.now();
-    await runWithExecContext({ tenantId: "demo" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "demo" } }, async () => {
       runtime.createDecisionWithCacheKey("k", graph("g1", "slow_get;;80"));
       const result = (await runtime.evaluateAsync("k", {})) as { result?: { out?: { error?: { code?: string } } } };
       // 运行时返回结构化 UDF_TIMEOUT……
@@ -49,7 +49,7 @@ describe("ToolContext（fn 第二参数）", () => {
     // ……且 fn 收到了 call 上下文：signal 已 abort、租户/截止时间在位
     expect(observed).toHaveLength(1);
     expect(observed[0]?.signal?.aborted).toBe(true);
-    expect(observed[0]?.tenantId).toBe("demo");
+    expect(observed[0]?.meta?.tenantId).toBe("demo");
     expect(typeof observed[0]?.deadlineAt).toBe("number");
     expect(observed[0]?.deadlineAt as number).toBeGreaterThanOrEqual(before + 80);
   });
@@ -66,7 +66,7 @@ describe("ToolContext（fn 第二参数）", () => {
       { parametersSchema: { properties: { timeout: { type: "integer", default: null } }, type: "object" } },
     );
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "demo" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "demo" } }, async () => {
       runtime.createDecisionWithCacheKey("k", graph("g2", "fast_get;;"));
       const result = (await runtime.evaluateAsync("k", {})) as { result?: { out?: unknown } };
       expect(result.result?.out).toBe("ok");
@@ -164,7 +164,7 @@ describe("数组调用模式（默认；;; 为旧图兼容）", () => {
       { parametersSchema: { properties: { a: { type: "integer" }, b: { type: "integer" } }, type: "object" } },
     );
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "demo" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "demo" } }, async () => {
       // 数组形态（默认）
       runtime.createDecisionWithCacheKey("ka", {
         id: "ga",
@@ -251,7 +251,7 @@ describe("命名调用形态（$call 保留键 + 具名实参）", () => {
 
   test("具名实参（表达式串与字面量混用）+ 可选参数缺省回退", async () => {
     const { runtime } = setup();
-    await runWithExecContext({ tenantId: "demo" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "demo" } }, async () => {
       runtime.createDecisionWithCacheKey("k", namedGraph({ $call: "pair", a: "1" }) as never);
       const r = (await runtime.evaluateAsync("k", {})) as { result?: { out?: { a?: unknown; b?: unknown } } };
       expect(r.result?.out?.a).toBe(1);
@@ -261,7 +261,7 @@ describe("命名调用形态（$call 保留键 + 具名实参）", () => {
 
   test("字段名笔误 → INVALID_PARAM unknown argument", async () => {
     const { runtime } = setup();
-    await runWithExecContext({ tenantId: "demo" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "demo" } }, async () => {
       runtime.createDecisionWithCacheKey("k", namedGraph({ $call: "pair", aa: "1" }) as never);
       const r = (await runtime.evaluateAsync("k", {})) as {
         result?: { out?: { error?: { code?: string; issues?: string[] } } };
@@ -273,7 +273,7 @@ describe("命名调用形态（$call 保留键 + 具名实参）", () => {
 
   test("缺 $call → INVALID_PARAM 结构化报错", async () => {
     const { runtime } = setup();
-    await runWithExecContext({ tenantId: "demo" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "demo" } }, async () => {
       runtime.createDecisionWithCacheKey("k", namedGraph({ a: "1" }) as never);
       const r = (await runtime.evaluateAsync("k", {})) as { result?: { out?: { error?: { code?: string } } } };
       expect(r.result?.out?.error?.code).toBe("INVALID_PARAM");

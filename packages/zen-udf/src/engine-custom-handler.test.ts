@@ -73,7 +73,7 @@ describe("L7 customHandler 组合语义（ADR-008）", () => {
       },
     });
 
-    await runWithExecContext({ tenantId: "l7", decisionId: "d" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "l7" }, decisionId: "d" }, async () => {
       runtime.createDecisionWithCacheKey("k", graph("g"), "v1");
       await runtime.evaluateAsync("k", { x: 7 }, undefined, "v1");
     });
@@ -102,7 +102,7 @@ describe("L7 customHandler 组合语义（ADR-008）", () => {
         return runtime.handleCustomNode(request);
       },
     });
-    await runWithExecContext({ tenantId: "l7", decisionId: "d" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "l7" }, decisionId: "d" }, async () => {
       runtime.createDecisionWithCacheKey("k", graph("g"), "v1");
       await runtime.evaluateAsync("k", { x: 7 }, undefined, "v1");
     });
@@ -115,7 +115,7 @@ describe("L7 customHandler 组合语义（ADR-008）", () => {
   test("无宿主 handler 时全部走内置分发（缺省行为不回归）", async () => {
     const { registry, spies } = makeRegistry();
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "l7", decisionId: "d" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "l7" }, decisionId: "d" }, async () => {
       runtime.createDecisionWithCacheKey("k", graph("g"), "v1");
       await runtime.evaluateAsync("k", { x: 7 }, undefined, "v1");
     });

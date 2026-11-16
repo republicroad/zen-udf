@@ -56,13 +56,13 @@ describe("AA1 影子评估", () => {
     );
     const runtime = new DecisionRuntime({ registry });
 
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graphWith("g1", "query_udf;;x"), "v1");
       runtime.createDecisionWithCacheKey("k", graphWith("g2", "query_udf;;y"), "v2");
       return Promise.resolve();
     });
 
-    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const shadow = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateShadow("k", { prod: "v1", shadow: "v2" }, { x: 1, y: 3 }),
     );
 
@@ -79,12 +79,12 @@ describe("AA1 影子评估", () => {
       return { plus: Number(kwargs?.x ?? 0) + 1 };
     }, "probe");
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graphWith("g1", "query_udf;;x"), "v1");
       return Promise.resolve();
     });
 
-    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const shadow = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateShadow("k", { prod: "v1", shadow: "v1" }, { x: 2 }),
     );
     expect(shadow.equivalent).toBe(true);
@@ -123,20 +123,20 @@ describe("AA1 影子评估", () => {
       ],
     };
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph, "v1");
       return Promise.resolve();
     });
 
     // 生产侧正常执行：写入一次
-    const prod = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const prod = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateAsync("k", {}, { trace: true }, "v1"),
     );
     expect((prod.result as { v?: { seen?: number } })?.v?.seen).toBe(1);
     expect(store.count).toBe(1);
 
     // 影子评估：生产侧再写一次（→2），影子侧只读不写（seen=2 读取、count 仍 2）
-    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const shadow = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateShadow("k", { prod: "v1", shadow: "v1" }, {}),
     );
     expect(store.count).toBe(2); // 整轮只生产侧写了一次
@@ -190,13 +190,13 @@ describe("AA1 影子评估", () => {
       ],
     };
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph, "v1");
       return Promise.resolve();
     });
 
     const before = store.count;
-    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const shadow = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateShadow("k", { prod: "v1", shadow: "v1" }, {}),
     );
     // 生产腿无 memo（热路径零参与）：两个实例各写一次；影子腿只读本就不写
@@ -237,12 +237,12 @@ describe("AA1 影子评估", () => {
       ],
     };
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph, "v1");
       return Promise.resolve();
     });
     const before = store.count;
-    const shadow = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const shadow = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateShadow("k", { prod: "v1", shadow: "v1" }, {}),
     );
     // 影子腿跨节点 memo（memoId 跨 TSFN 克隆）：第二节点命中首节点 outcome

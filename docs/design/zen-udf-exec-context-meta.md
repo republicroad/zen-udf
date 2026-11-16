@@ -15,6 +15,11 @@ ExecContext 现役 10 字段全部 case-by-case 逐个立法。下一笔待付�
 的领域概念，引擎接口不该知道宿主在执行"模型"还是"策略"，case-by-case = 宿主域
 概念无限侵蚀引擎接口 + 每次上游发版循环。
 
+> **批次 167 更新**：本节为 2.3.0 时期判据（历史记录）。tenantId/userId/requestId/
+> tenantExempt 已降格 meta（3.0.0 破坏性变更）——应用域概念退出 typed 面，隔离
+> 键改经 partitionKey 提取器端口（宿主函数），当前 typed 面仅剩引擎语义七字段
+> （CONTRACT §5.5 控制面/数据面立法表）。
+
 **判据（data/control 分离）**：引擎消费的字段（tenantId/replay/shadow/tenantExempt/
 observeMemoId/journalId——安全与行为开关）必须强类型第一公民；仅被工具/宿主/审计
 消费的数据（userId/requestId/decisionId/eventTime 及一切未来宿主元数据）走开放
@@ -165,7 +170,8 @@ TSFN 深相等+不读纪律+远侧冻结测试钉；ExecMeta 可选类型别名�
 ### 亮点
 
 - **钉 B 对抗性设计**：meta 塞 typed 同名键（tenantId/shadow/tenantExempt…）——
-  data/control 分离最锋利的回归守卫，优于泛化"行为不变"断言
+  data/control 分离最锋利的回归守卫，优于泛化"行为不变"断言（批次 167 后
+  typed 面已无 tenantId/tenantExempt，钉保留对 replay/shadow 等控制面字段）
 - **同名消歧注记**：`ExecContext.meta` vs `meta.egress.allow`（pack 声明面）同仓
   碰撞提前在 CONTRACT §6 落位
 - **assertJsonSafeInput 不覆盖 ExecContext 的诚实披露**（§2 注意）——未藏进脚注

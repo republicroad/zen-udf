@@ -144,8 +144,23 @@ export interface DecisionRuntimeOptions extends Omit<ZenEngineOptions, "customHa
   idleTtlMs?: number;
   /** per-tenant 并发闸（执行规范 §6.3）；缺省不限并发 */
   limiter?: ConcurrencyLimiter;
-  /** 熔断器（Y5）：per tenantId+udfName 故障隔离；缺省无熔断 */
+  /** 熔断器（Y5）：per 分区+udfName 故障隔离；缺省无熔断 */
   breaker?: CircuitBreaker;
+  /**
+   * 分区提取器端口（批次 167 立法）：宿主声明引擎机制（决策缓存键/熔断器/并发闸/
+   * 审计与指标事件）的隔离分区键如何从执行上下文派生——应用域概念（如多租户的
+   * `meta.tenantId`）由宿主在此映射，引擎自身零应用域概念、不读 meta（读取 meta
+   * 的是宿主自己给的函数，data/control 分离保持；隔离键显式声明禁 ambient——
+   * Stripe named rate limiter / Flink state descriptor 同款哲学）。
+   * 缺省 undefined = 无分区形态（缓存键退化 `:key@rev`、熔断/并发闸全局共享）。
+   */
+  partitionKey?: (ctx: ExecContext) => string | undefined;
+  /**
+   * 分区强制门（可选，fail closed）：开启后 evaluate 入口在分区缺失时拒绝执行——
+   * 泛化替代原 requireTenantContext 的多租户防线（防串染）。缺省 false = 宿主自管
+   * （横切守卫在宿主边界层——Spring filter chain / gRPC interceptor 同款哲学）。
+   */
+  requirePartition?: boolean;
   /**
    * 返回值契约档位（执行规范 §6.5，宿主裁决 D5）：缺省 `warn`——违例计入 traceData、
    * 结果原样下发；`enforce` 把违例结果替换为 INVALID_RESULT 结构化错误。
@@ -168,7 +183,7 @@ export interface DecisionRuntimeOptions extends Omit<ZenEngineOptions, "customHa
  * verdict 侧聚合成 Prometheus 指标（如 zen_udf_udf_errors_total）。
  */
 export type MetricsEvent =
-  | { kind: "udf"; name: string; tenantId?: string; micros: number; code?: string; idempotent?: boolean }
+  | { kind: "udf"; name: string; partition?: string; micros: number; code?: string; idempotent?: boolean }
   | { kind: "circuit"; key: string; allowed: false }
   | { kind: "limiter"; key: string; waitMicros: number };
 
@@ -196,7 +211,8 @@ export interface DecisionObservedCall {
  */
 export interface DecisionAuditEvent {
   decisionId: string;
-  tenantId: string;
+  /** 分区隔离键（批次 167：经 partitionKey 提取器从宿主上下文派生；缺省 undefined = 无分区形态） */
+  partition?: string;
   key: string;
   rev: string;
   inputHash: string;
@@ -205,7 +221,8 @@ export interface DecisionAuditEvent {
   /** 事件时间（ExecContext.eventTime；缺省 = 处理时间） */
   asOf?: string;
   processingTime: string;
-  requestId?: string;
+  /** 宿主元数据透传（数据面原样快照——replay 重建上下文的 meta 来源；引擎不解读） */
+  meta?: Record<string, unknown>;
   source: "live" | "replay";
   observed: DecisionObservedCall[];
   performance?: string;
@@ -273,6 +290,10 @@ class DecisionRuntime {
   limiter?: ConcurrencyLimiter;
   /** 熔断器（缺省 undefined = 不熔断） */
   breaker?: CircuitBreaker;
+  /** 分区提取器（缺省 undefined = 无分区形态）；分区键派生属宿主，见 DecisionRuntimeOptions.partitionKey */
+  partitionKey?: (ctx: ExecContext) => string | undefined;
+  /** 分区强制门（缺省 false） */
+  requirePartition: boolean;
   /** 返回值契约档位（缺省 warn，宿主裁决 D5） */
   resultValidation: "off" | "warn" | "enforce";
   /** 错误消息脱敏器 */
@@ -293,6 +314,8 @@ class DecisionRuntime {
     });
     this.limiter = options.limiter;
     this.breaker = options.breaker;
+    this.partitionKey = options.partitionKey;
+    this.requirePartition = options.requirePartition ?? false;
     this.resultValidation = options.resultValidation ?? "warn";
     this.sanitizer = options.sanitizer ?? sanitizeErrorDefault;
     this.onDecision = options.onDecision;
@@ -328,18 +351,21 @@ class DecisionRuntime {
   }
 
   /**
-   * L1 缓存键：`${tenantId}:${key}@${rev}`——不可变版本键，与 verdict `modelId:v{rev}` 对齐。
-   * tenantExempt 时租户段为 'single'；无任何租户上下文时拒绝（fail closed）。
+   * 分区键派生单源（批次 167）：引擎全部隔离机制（缓存键/熔断/并发闸/审计与指标
+   * 事件）统一经此取分区——宿主 partitionKey 提取器是唯一来源，引擎自身不解读。
+   */
+  private partitionOf(ctx: ExecContext | undefined): string | undefined {
+    return this.partitionKey?.(ctx ?? {});
+  }
+
+  /**
+   * L1 缓存键：`${partition}:${key}@${rev}`——不可变版本键，与 verdict `modelId:v{rev}` 对齐。
+   * 无分区形态（partitionKey 未配置或提取为 undefined）时分区段为空串，缓存键退化
+   * `:key@rev`——同 key@rev 全局共享一份（宿主保证 key 全局唯一或自带分区段）。
    */
   private composeCacheKey(key: string, rev?: string): string {
-    const ctx = getExecContext();
-    const tenant = ctx?.tenantId ?? (ctx?.tenantExempt ? "single" : "");
-
-    if (!tenant) {
-      throw new Error("[zen-udf] cache operations require exec context tenantId (or tenantExempt)");
-    }
-    const ck = tenant + ":" + key + "@" + (rev ?? "latest");
-    if (process.env.DBG_COMPOSE) console.log("[DBG compose]", ck);
+    const partition = this.partitionOf(getExecContext()) ?? "";
+    const ck = partition + ":" + key + "@" + (rev ?? "latest");
     return ck;
   }
 
@@ -408,15 +434,14 @@ class DecisionRuntime {
   }
 
   /**
-   * 多租户安全默认（fail closed）：evaluate 入口强制租户上下文。
-   * 单租户 CLI/本地场景在 ExecContext 设 tenantExempt: true 显式豁免。
+   * 分区强制门（可选，fail closed）：仅 DecisionRuntimeOptions.requirePartition 开启时
+   * 在 evaluate 入口拒绝分区缺失的执行（防串染）；缺省零强制——宿主自管。
    */
-  private static requireTenantContext(): void {
-    const ctx = getExecContext();
-    if (ctx?.tenantExempt) return;
-    if (!ctx?.tenantId) {
+  private requirePartitionContext(): void {
+    if (!this.requirePartition) return;
+    if (this.partitionOf(getExecContext()) === undefined) {
       throw new Error(
-        "[zen-udf] missing exec context tenantId — wrap the call in runWithExecContext({ tenantId }, fn), or set tenantExempt: true for single-tenant deployments",
+        "[zen-udf] missing exec context partition — provide partitionKey extractor or wrap the call with partition-bearing meta",
       );
     }
   }
@@ -500,14 +525,14 @@ class DecisionRuntime {
       }
       const event: DecisionAuditEvent = {
         decisionId: execCtx?.decisionId ?? globalThis.crypto?.randomUUID?.() ?? `dec-${Date.now()}-${Math.random()}`,
-        tenantId: execCtx?.tenantId ?? "single",
+        partition: this.partitionOf(execCtx),
         key,
         rev: rev ?? "latest",
         inputHash,
         output: result.result,
         asOf: execCtx?.eventTime,
         processingTime: new Date().toISOString(),
-        requestId: execCtx?.requestId,
+        meta: execCtx?.meta,
         source: execCtx?.replay ? "replay" : "live",
         observed,
         performance: result.performance,
@@ -531,7 +556,7 @@ class DecisionRuntime {
     const evalInternal = async (
       span?: { addEvent(name: string, attrs: Record<string, unknown>): void } | undefined,
     ) => {
-      DecisionRuntime.requireTenantContext();
+      this.requirePartitionContext();
       assertJsonSafeInput(ctx);
       const decision = this.getDecision(key, rev);
       const execCtx = getExecContext();
@@ -616,23 +641,24 @@ class DecisionRuntime {
     input: unknown,
     options?: ZenEvaluateOptions,
   ): Promise<ShadowEvaluation> {
-    DecisionRuntime.requireTenantContext();
+    this.requirePartitionContext();
     const base = getExecContext();
     const prod = await this.evaluateAsync(key, input, options, revs.prod);
 
     // 影子侧独立 observe memo 帧（批次 80）：独立 memoId=影子/生产 memo 天然隔离，
-    // 跨节点（TSFN 克隆）经 id 命中同一帧；评估完成即清理
+    // 跨节点（TSFN 克隆）经 id 命中同一帧；评估完成即清理。
+    // 批次 167：分区经 partitionKey 提取器从继承的 meta 派生（影子腿继承宿主
+    // 数据面）——不再注入 tenant 段（typed 控制面无应用域概念）。
     const shadowMemoId = newAuditJournalId();
     observeMemoRegistry.set(shadowMemoId, new Map());
-    const shadowExec = {
-      ...(base ?? { tenantExempt: true }),
-      tenantId: base?.tenantId ?? "single",
+    const shadowExec: ExecContext = {
+      ...(base ?? {}),
       shadow: { prodRev: revs.prod },
       observeMemoId: shadowMemoId,
     };
     const shadowDecision = this.getDecision(key, revs.shadow);
     // 批次 166：影子侧上下文经原生 execution_context 通道传递（不再嵌入 input）
-    const shadowResult = (await runWithExecContext(shadowExec as ExecContext, () =>
+    const shadowResult = (await runWithExecContext(shadowExec, () =>
       shadowDecision.evaluate(input, options as ZenEvaluateOptions | null | undefined, shadowExec),
     ).finally(() => {
       observeMemoRegistry.delete(shadowMemoId);
@@ -669,8 +695,9 @@ class DecisionRuntime {
       );
     }
     const execCtx: ExecContext = {
-      tenantId: audit.tenantId,
-      requestId: audit.requestId,
+      // 批次 167：分区经宿主 partitionKey 提取器从 meta 派生（replay 重建携带
+      // 审计事件透传的数据面）；机制字段（decisionId/eventTime/replay）为控制面。
+      meta: audit.meta,
       decisionId: audit.decisionId,
       eventTime: audit.asOf,
       replay: {
@@ -999,11 +1026,12 @@ class DecisionRuntime {
       }
 
       if (traces.length > 0) {
+        const partition = this.partitionOf(execCtx);
         for (const t of traces) {
           this.metrics?.({
             kind: "udf",
             name: t.name,
-            tenantId: execCtx?.tenantId,
+            partition,
             micros: t.micros,
             code: t.code,
             idempotent: t.idempotent,
@@ -1282,10 +1310,11 @@ class DecisionRuntime {
           _node_input_: nodeInput,
         };
 
-        // 执行规范 §6.3：per-tenant 并发闸（注入 limiter 时生效）
-        const tenantId = getExecContext()?.tenantId;
-        // Y5：熔断检查（per tenantId+udfName），打开时 CIRCUIT_OPEN 快速失败
-        breakerKey = tenantId ? `${tenantId}:${funcName}` : funcName;
+        // 执行规范 §6.3：per-partition 并发闸（注入 limiter 时生效）；分区经宿主
+        // partitionKey 提取器派生（批次 167——引擎零应用域概念）
+        const partition = this.partitionOf(getExecContext());
+        // Y5：熔断检查（per partition+udfName），打开时 CIRCUIT_OPEN 快速失败
+        breakerKey = partition ? `${partition}:${funcName}` : funcName;
         if (this.breaker && !this.breaker.allow(breakerKey)) {
           const openOutcome = { error: { code: "CIRCUIT_OPEN", message: `circuit open for ${breakerKey}` } };
           this.metrics?.({ kind: "circuit", key: breakerKey, allowed: false });
@@ -1300,12 +1329,12 @@ class DecisionRuntime {
           return openOutcome;
         }
         let release: (() => void) | null = null;
-        if (this.limiter && tenantId) {
+        if (this.limiter && partition) {
           const waitStart = process.hrtime.bigint();
-          release = await this.limiter.acquire(tenantId);
+          release = await this.limiter.acquire(partition);
           this.metrics?.({
             kind: "limiter",
-            key: tenantId,
+            key: partition,
             waitMicros: Number(process.hrtime.bigint() - waitStart) / 1000,
           });
         }
@@ -1320,12 +1349,12 @@ class DecisionRuntime {
         try {
           const call = this.registry.call(funcName, kwargs, {
             name: funcName,
-            tenantId: execCtx?.tenantId,
-            userId: execCtx?.userId,
-            requestId: execCtx?.requestId,
+            // 批次 167：应用域身份（tenantId/userId/requestId）住 meta 数据面，
+            // ToolContext 原样透传——工具按约定键自读
+            meta: execCtx?.meta,
             signal: callController.signal,
             deadlineAt: timeoutMs ? Date.now() + timeoutMs : null,
-            // ADR-021：宿主 HTTP/重试包装器据此执行 §1.3 禁重试纪律（幂等键 = requestId 单源贯穿）
+            // ADR-021：宿主 HTTP/重试包装器据此执行 §1.3 禁重试纪律（幂等键 = meta.requestId 单源贯穿）
             temporal,
             stateful,
             fidelity,

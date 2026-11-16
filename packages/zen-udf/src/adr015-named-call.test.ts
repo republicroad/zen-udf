@@ -56,7 +56,7 @@ const makeRuntime = (): { runtime: DecisionRuntime; registry: UdfRegistry } => {
 describe("ADR-015 调用规范（具名字典 + 双读）", () => {
   test("规范形信封 {$call, kwargs} 与 legacy 平面形态执行等价", async () => {
     const { runtime } = makeRuntime();
-    await runWithExecContext({ tenantId: "t" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
       runtime.createDecisionWithCacheKey("k", model, "v1");
       const outcome = await runtime.evaluateAsync("k", { x: 7 }, undefined, "v1");
       // 两形态同图并存：信封形（kwargs 值为表达式串按 nodeInput 求值）与
@@ -80,7 +80,7 @@ describe("ADR-015 调用规范（具名字典 + 双读）", () => {
         },
       },
     );
-    await runWithExecContext({ tenantId: "t" }, async () => {
+    await runWithExecContext({ meta: { tenantId: "t" } }, async () => {
       runtime.createDecisionWithCacheKey(
         "k-env",
         {

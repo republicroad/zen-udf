@@ -37,53 +37,63 @@ const customGraph = (id: string) => ({
   ],
 });
 
-describe("DecisionRuntime 租户上下文强制（U2）", () => {
-  test("无租户上下文时 evaluate 拒绝执行（fail closed）", async () => {
-    const runtime = new DecisionRuntime({});
-    await runWithExecContext({ tenantId: "setup" }, () => {
+describe("DecisionRuntime 分区强制门（U2，批次 167 泛化）", () => {
+  test("requirePartition 开启时分区缺失拒绝执行（fail closed）", async () => {
+    const runtime = new DecisionRuntime({ requirePartition: true });
+    await runWithExecContext({ meta: { tenantId: "setup" } }, () => {
       runtime.createDecisionWithCacheKey("k", structuredClone(graph));
       return Promise.resolve();
     });
 
-    await expect(runtime.evaluateAsync("k", { x: 1 })).rejects.toThrow("missing exec context tenantId");
-    await expect(runWithExecContext({ userId: "u1" }, () => runtime.evaluateAsync("k", { x: 1 }))).rejects.toThrow(
-      "missing exec context tenantId",
+    await expect(runtime.evaluateAsync("k", { x: 1 })).rejects.toThrow("missing exec context partition");
+    await expect(runWithExecContext({ meta: { userId: "u1" } }, () => runtime.evaluateAsync("k", { x: 1 }))).rejects.toThrow(
+      "missing exec context partition",
     );
   });
 
-  test("携带 tenantId 时正常执行", async () => {
+  test("缺省不强制：无分区形态照常执行（宿主自管）", async () => {
     const runtime = new DecisionRuntime({});
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", structuredClone(graph));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1", userId: "u1" }, () =>
+    const result = await runWithExecContext({ meta: { tenantId: "t-1", userId: "u1" } }, () =>
       runtime.evaluateAsync("k", { x: 1 }),
     );
     expect(result.result).toBeDefined();
   });
 
-  test("tenantExempt 豁免单租户部署", async () => {
-    const runtime = new DecisionRuntime({});
-    await runWithExecContext({ tenantExempt: true }, () => {
-      runtime.createDecisionWithCacheKey("k", structuredClone(graph));
+  test("无分区形态（未配 partitionKey）与分区形态互不串键", async () => {
+    const bare = new DecisionRuntime({ registry: new UdfRegistry() });
+    const parted = new DecisionRuntime({
+      registry: new UdfRegistry(),
+      partitionKey: (ctx) => (typeof ctx.meta?.tenantId === "string" ? ctx.meta.tenantId : undefined),
+    });
+    const g = structuredClone(graph);
+    await runWithExecContext({ meta: { tenantId: "single" } }, () => {
+      bare.createDecisionWithCacheKey("k", structuredClone(g));
+      parted.createDecisionWithCacheKey("k", structuredClone(g));
       return Promise.resolve();
     });
-
-    const result = await runWithExecContext({ tenantExempt: true }, () => runtime.evaluateAsync("k", { x: 1 }));
+    // 同 key@rev 在无分区与有分区运行时是不同缓存键——各自在匹配分区下可见
+    await runWithExecContext({ meta: { tenantId: "single" } }, async () => {
+      expect(parted.getDecisionCache("k")).toBeDefined();
+      expect(bare.getDecisionCache("k")).toBeDefined();
+    });
+    const result = await runWithExecContext({ meta: { tenantId: "single" } }, () => parted.evaluateAsync("k", { x: 1 }));
     expect(result.result).toBeDefined();
   });
 
-  test("tenantId 经 AsyncLocalStorage 贯穿并发链路", async () => {
+  test("meta.tenantId 经 AsyncLocalStorage 贯穿并发链路", async () => {
     const probe = async (): Promise<string | undefined> => {
       await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
-      return getExecContext()?.tenantId;
+      return getExecContext()?.meta?.tenantId as string | undefined;
     };
     const results = await Promise.all([
-      runWithExecContext({ tenantId: "t-a" }, probe),
-      runWithExecContext({ tenantId: "t-b" }, probe),
-      runWithExecContext({ tenantId: "t-c" }, probe),
+      runWithExecContext({ meta: { tenantId: "t-a" } }, probe),
+      runWithExecContext({ meta: { tenantId: "t-b" } }, probe),
+      runWithExecContext({ meta: { tenantId: "t-c" } }, probe),
     ]);
     expect(results).toEqual(["t-a", "t-b", "t-c"]);
   });
@@ -101,15 +111,15 @@ describe("DecisionRuntime 实例注入（U3）", () => {
   test("两个运行时实例同名 UDF 各自解析，互不串扰", async () => {
     const ra = new DecisionRuntime({ registry: makeRegistry("A") });
     const rb = new DecisionRuntime({ registry: makeRegistry("B") });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       ra.createDecisionWithCacheKey("k", customGraph("ga"));
       rb.createDecisionWithCacheKey("k", customGraph("gb"));
       return Promise.resolve();
     });
 
     const [a, b] = await Promise.all([
-      runWithExecContext({ tenantId: "t-1" }, () => ra.evaluateAsync("k", { x: 1 })),
-      runWithExecContext({ tenantId: "t-1" }, () => rb.evaluateAsync("k", { x: 2 })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => ra.evaluateAsync("k", { x: 1 })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => rb.evaluateAsync("k", { x: 2 })),
     ]);
     expect((a.result as { out: { tag: string } }).out.tag).toBe("A");
     expect((b.result as { out: { tag: string } }).out.tag).toBe("B");
@@ -117,12 +127,12 @@ describe("DecisionRuntime 实例注入（U3）", () => {
 
   test("空注册表的运行时对未知 UDF 返回结构化错误而非抛出", async () => {
     const runtime = new DecisionRuntime({ registry: new UdfRegistry() });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", customGraph("g-empty"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { x: 1 }));
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { x: 1 }));
     const serialized = JSON.stringify(result);
     expect(serialized).toContain("udf probe_udf not found");
   });
@@ -135,15 +145,15 @@ describe("DecisionRuntime 实例注入（U3）", () => {
   test("ExecContext 经输入保留键贯穿 TSFN 边界，UDF 内可读（ALS 重建立）", async () => {
     const registry = new UdfRegistry();
     registry.registerFunction(function probe_udf() {
-      return { tenantInUdf: getExecContext()?.tenantId ?? null, userInUdf: getExecContext()?.userId ?? null };
+      return { tenantInUdf: getExecContext()?.meta?.tenantId ?? null, userInUdf: getExecContext()?.meta?.userId ?? null };
     }, "probe");
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", customGraph("g-als"));
       return Promise.resolve();
     });
 
-    const result = await runWithExecContext({ tenantId: "t-1", userId: "u-9" }, () =>
+    const result = await runWithExecContext({ meta: { tenantId: "t-1", userId: "u-9" } }, () =>
       runtime.evaluateAsync("k", { x: 1 }),
     );
     const out = (result.result as { out?: { tenantInUdf?: string; userInUdf?: string } }).out;

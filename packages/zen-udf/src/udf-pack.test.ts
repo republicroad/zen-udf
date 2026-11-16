@@ -109,11 +109,11 @@ describe("UdfPack 契约（U6）", () => {
       ],
     };
 
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("fraud-model", graph, "v1");
       return Promise.resolve();
     });
-    const result = await runWithExecContext({ tenantId: "t-1" }, () =>
+    const result = await runWithExecContext({ meta: { tenantId: "t-1" } }, () =>
       runtime.evaluateAsync("fraud-model", { deviceId: "dev-9" }, undefined, "v1"),
     );
     expect((result.result as { fp: { marker: string } }).fp.marker).toBe("fraud-pack");

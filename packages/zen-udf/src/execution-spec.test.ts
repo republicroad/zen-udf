@@ -5,6 +5,11 @@ import { runWithExecContext } from "./exec-context.ts";
 import { InMemoryConcurrencyLimiter, NoopConcurrencyLimiter } from "./limiter.ts";
 import { UdfRegistry } from "./register.ts";
 
+/** 参考分区提取器：meta.tenantId 约定键（批次 167） */
+const META_TENANT_PARTITION = (ctx: { meta?: Record<string, unknown> }): string | undefined =>
+  typeof ctx.meta?.tenantId === "string" ? ctx.meta.tenantId : undefined;
+
+
 /** 带 customNode 的图：expr 调用 target_udf，结果写 out 字段 */
 const graph = (id: string, expr = "target_udf;;p1;;p2;;p3") => ({
   id,
@@ -52,13 +57,13 @@ const makeRegistry = (fn: (kwargs: Record<string, unknown>) => unknown): UdfRegi
 };
 
 const evalGraph = async (runtime: DecisionRuntime, input: unknown) =>
-  runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", input));
+  runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", input));
 
 describe("执行规范 §6.1 参数校验", () => {
   test("必填位置参数缺失 → INVALID_PARAM 结构化错误", async () => {
     const registry = makeRegistry((kwargs) => ({ echo: kwargs?.p1 ?? null }));
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"));
       return Promise.resolve();
     });
@@ -73,7 +78,7 @@ describe("执行规范 §6.1 参数校验", () => {
   test("有默认值的参数缺失不报错（funcBindParams 回退）", async () => {
     const registry = makeRegistry((kwargs) => ({ got: kwargs?.p1 ?? null, timeout: kwargs?.timeout ?? null }));
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"));
       return Promise.resolve();
     });
@@ -92,7 +97,7 @@ describe("执行规范 §6.2 超时约定", () => {
     });
     // timeout 声明为 schema 最后一个参数（默认 0 = 不限时），表达式第 4 位传入
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-timeout", "target_udf;;p1;;p2;;p3;;timeout"));
       return Promise.resolve();
     });
@@ -108,7 +113,7 @@ describe("执行规范 §6.2 超时约定", () => {
       return { done: true, input: kwargs?.p1 ?? null };
     });
     const runtime = new DecisionRuntime({ registry });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g-ok", "target_udf;;p1;;p2;;p3;;timeout"));
       return Promise.resolve();
     });
@@ -134,15 +139,15 @@ describe("执行规范 §6.3 并发闸", () => {
     }, "target");
 
     const limiter = new InMemoryConcurrencyLimiter(1);
-    const runtime = new DecisionRuntime({ registry, limiter });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    const runtime = new DecisionRuntime({ partitionKey: META_TENANT_PARTITION, registry, limiter });
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"));
       return Promise.resolve();
     });
 
     const [a, b] = await Promise.all([
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { p1: "a", p2: 1, p3: "c" })),
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { p1: "b", p2: 2, p3: "c" })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { p1: "a", p2: 1, p3: "c" })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { p1: "b", p2: 2, p3: "c" })),
     ]);
     expect(peak).toBe(1);
     expect((a.result as { out?: { ok?: boolean } }).out?.ok).toBe(true);
@@ -162,14 +167,14 @@ describe("执行规范 §6.3 并发闸", () => {
     }, "target");
 
     const runtime = new DecisionRuntime({ registry, limiter: new NoopConcurrencyLimiter() });
-    await runWithExecContext({ tenantId: "t-1" }, () => {
+    await runWithExecContext({ meta: { tenantId: "t-1" } }, () => {
       runtime.createDecisionWithCacheKey("k", graph("g"));
       return Promise.resolve();
     });
 
     await Promise.all([
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { p1: "a", p2: 1, p3: "c" })),
-      runWithExecContext({ tenantId: "t-1" }, () => runtime.evaluateAsync("k", { p1: "b", p2: 2, p3: "c" })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { p1: "a", p2: 1, p3: "c" })),
+      runWithExecContext({ meta: { tenantId: "t-1" } }, () => runtime.evaluateAsync("k", { p1: "b", p2: 2, p3: "c" })),
     ]);
     expect(peak).toBe(2);
   });
