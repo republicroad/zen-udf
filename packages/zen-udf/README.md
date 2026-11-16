@@ -1,6 +1,8 @@
 # @republicroad/zen-udf
 
-zen-engine 的 customNode UDF 核心运行时：**多函数实例执行规范 + UdfPack 注册表 + L1 决策缓存 + 决策审计与确定性回放 + 多租户数据面端口**。
+zen-engine 的 customNode UDF 核心运行时：**多函数实例执行规范 + UdfPack 注册表 + L1 决策缓存 + 决策审计与确定性回放 + 数据面端口**。
+
+**定位（三包架构，批次 168）**：zen-udf 是**与语义无关的自定义节点执行时上下文参数传递机制**——ExecContext 经原生 execution_context 通道送达每个自定义节点 handler，效果同词法作用域 / Python /：宿主在调用边界构造上下文，节点内工具随处可读，图表达式不可见。应用域概念（多租户身份等）住 meta 数据面由宿主自维护；引擎机制隔离键经 partitionKey 提取器端口由宿主声明（CONTRACT §5.5）。工具集分层：[@republicroad/zen-udf-contrib](https://www.npmjs.com/package/@republicroad/zen-udf-contrib)（开源无状态参考域）+ zen-udf-ee（企业级有状态节点：haproxy/数据状态/数据库类）。
 
 2.0.0 起参考域（velocity/名单/http/号码/IP 等 21 域）迁至 [@republicroad/zen-udf-contrib](https://www.npmjs.com/package/@republicroad/zen-udf-contrib)，本包为纯核心（机制与端口）。
 

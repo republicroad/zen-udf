@@ -1,9 +1,12 @@
 # @republicroad/zen-udf-contrib
 
-zen-udf 官方参考域集合：velocity 频次族（record/stats/ratio）、名单 `list_match`、
-`http_request`（egress 门控 + maxBytes 守卫）、intl-phone（E.164/归属地/运营商）、IP 族
-（canonical/private/cidr）、identity（email）、notify、crypto、ab-bucket、datetime、geo、
-debug、validate-cn 等 **21 域 54 工具**。
+zen-udf 官方【无状态】参考域集合（2.0.0 起三包架构定界）：crypto、datetime（dt）、
+template、validate（id_card/mobile/uscc/bank_card）、geo（distance/fence）、ab-bucket、
+http（http_request，egress 门控 + maxBytes 守卫）、notify（webhook）、ip-location、debug/debugui
+——**11 域**，纯计算或单次出站调用，不持任何服务端状态。
+
+有状态域（haproxy 三件/trailing-window 频次族/value_list+custom-list-query 名单/
+dedup-hll）已迁企业包 zen-udf-ee（批次 168 三包架构）。
 
 依赖 [@republicroad/zen-udf](https://www.npmjs.com/package/@republicroad/zen-udf)（核心运行时），
 装载方式二选一：
