@@ -117,6 +117,24 @@ meta。断言：
 3. 根目录 `bun run test` 全 workspace 回归（contrib 125 不受影响）
 4. 人工核对：CONTRACT §6 新块与 §8 BACKWARD 条款互引成立；同名消歧注记在位
 
+## 6.5 · 后续实施：zen-udf 切原生 execution_context 通道（内核通道已随 2.1.9+enriched 落地）
+
+**实仓核验（2026-11-16）**：fork 发布产物 d.ts 已含 `executionContext`（evaluate/safeEvaluate
+第三/四参，customNode 回调载荷 executionContext 字段）——**内核侧零待办**，剩余纯
+zen-udf TS 层接线：
+
+| # | 项 | 说明 |
+| --- | --- | --- |
+| 1 | DecisionRuntime.evaluateAsync | 内部 evaluate 调用传第四参 executionContext = ExecContext 全量（含 meta） |
+| 2 | handleCustomNode 换读 | `request.execution_context` 替代保留键恢复（ALS 重建立不变） |
+| 3 | 三件套退役 | EXEC_CONTEXT_INPUT_KEY 嵌入/剥离/冻结整体移除（passThrough 衰减根治——meta/租户全链直达） |
+| 4 | meta 通道 | 随 ExecContext 全量直达，无需单独处理 |
+
+量级半天（纯 TS 接线 + 回归钉复用）。**触发条件**：与 meta 通道同车发版 2.3.0
+（meta 字段本批已落，接线随下批）；verdict 侧消费（scoreboard scope@liveRev 标注）
+随发版后升级。源头设计：`verdict/docs/drafts/upstream-zen-execution-context.md`
+（内核通道提案，2026-10-31——已在 fork 兑现）。
+
 ## 7 · 提交路径
 
 additive minor 2.3.0。commit 消息体例：
