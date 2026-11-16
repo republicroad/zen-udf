@@ -1,7 +1,7 @@
 {
   "name": "@republicroad/zen-udf-contrib",
   "license": "MIT",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "zen-udf open-source stateless reference domains: crypto, datetime, template, validate-cn, geo, ab-bucket, http, notify, ip-location and more (11 stateless domains)",
   "type": "module",
   "main": "src/index.ts",
@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@republicroad/zen-udf": "^3.0.0",
+    "@republicroad/zen-udf": "^4.0.0",
     "@sinclair/typebox": "0.34.38"
   },
   "devDependencies": {
