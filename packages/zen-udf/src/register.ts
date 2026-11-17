@@ -1,6 +1,4 @@
 import { asTypedValueEnvelope } from "./instances/envelope.ts";
-import type { UdfPorts } from "./ports.ts";
-import { setPorts } from "./runtime-ports.ts";
 import type { UdfTool, UdfFidelity } from "./tool.ts";
 
 /**
@@ -747,28 +745,7 @@ export interface UdfPackMeta {
 /** 声明域模式校验：`example.com` 精确 / `*.example.com` 通配；禁 scheme/路径/`*` 全通 */
 const EGRESS_DOMAIN_PATTERN = /^(?:\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
 
-/**
- * 声明域匹配（1.6.0）：URL 的 host 是否落声明白名单内——精确相等或通配后缀
- * （`*.api.example.com` 命中 `v1.api.example.com`，不命中 `api.example.com`
- * 本体；`*` 全通不支持，缺省声明 = 无声明面，策略全权归 EgressGuard）。
- * 供宿主 EgressGuard 实现做「声明内收紧」的纯函数，机制层默认不强制。
- */
-export const egressHostMatches = (allow: readonly string[], url: string): boolean => {
-  let host: string;
-  try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  return allow.some((pattern) => {
-    const p = pattern.toLowerCase();
-    if (p.startsWith("*.")) {
-      const suffix = p.slice(1); // '.api.example.com'
-      return host.endsWith(suffix) && host.length > suffix.length;
-    }
-    return host === p;
-  });
-};
+
 
 /**
  * ADR-009 namespace 立法：保留前缀给 zen-udf 本体与参考域，宿主通用扩展与行业包
@@ -932,8 +909,6 @@ export function validatePack(pack: UdfPack): string[] {
 export interface CreateUdfRuntimeOptions {
   /** 业务函数包（deploy-time 注入）；注册前逐个 validatePack，违例整体失败 */
   packs?: UdfPack[];
-  /** 策略层端口（CONTRACT §6）：组合根一次注入，handlers 经 getPorts() 读取（单进程语义） */
-  ports?: UdfPorts;
 }
 
 /**
@@ -942,7 +917,6 @@ export interface CreateUdfRuntimeOptions {
  */
 export function createUdfRuntime(options: CreateUdfRuntimeOptions = {}): UdfRegistry {
   const registry = new UdfRegistry();
-  if (options.ports) setPorts(options.ports);
   // ADR-009 撞名检测（deploy 期 fail fast，报错列出冲突 namespace——实施加强注记 1）：
   // 跨 pack 的工具名重复即失败（分发按裸函数名，重复即覆盖歧义），除非工具显式
   // 声明 overwrite；pack namespace 重复为配置错误，一并失败。

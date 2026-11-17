@@ -24,7 +24,6 @@ zen-engine 原生只执行内置节点类型；本包负责四件事：
 1. **执行规范**——customNode 内多函数实例（`udf;;arg;;arg`）的求值、位置参数绑定、必填校验、超时兜底、per-tenant 并发闸与熔断、返回值契约、错误 containment 与脱敏、响应体积守卫（http maxBytes）
 2. **决策缓存**——L1 进程内缓存（LRU + 指标），键 `${tenantId}:${key}@${rev}`（zen-engine 函数 loader 无引擎级缓存，缓存责任在宿主——探针实证）
 3. **算子语义三元**（query/observe/act）+ 输入序列化守卫（NaN/Infinity fail-fast）+ 批量评估（evaluateMany）（审计/回放/影子 4.0.0 退役——宿主重设计中）
-4. **多租户上下文与端口**——AsyncLocalStorage 贯穿 evaluate → customNode → UDF（ALS 不跨 TSFN 边界，运行时以输入保留键重建）；数据面端口（RateStore/ConcurrencyLimiter/EgressGuard/SecretResolver）
 
 ## 快速上手
 
@@ -117,7 +116,6 @@ const runtime = createUdfRuntime({
     // 策略层端口（CONTRACT §6）
     egressGuard: myGuard,
     secretResolver: myResolver,
-    rateStore: myRedisStore,
   },
 });
 
@@ -148,7 +146,6 @@ DecisionRuntime / UdfPack / registerUdf / registerTools / defineContrib / define
 
 | 端口                 | 用途                               | 参考实现 / 生产实现                                                             |
 | -------------------- | ---------------------------------- | ------------------------------------------------------------------------------- |
-| `RateStore`          | 滑动窗口频控（as-of 事件时间）     | `InMemoryRateStore`（开发态）→ Redis 实现，复用 `rateStoreConformance` 契约测试 |
 | `ConcurrencyLimiter` | per-tenant 并发闸                  | `InMemoryConcurrencyLimiter`（FIFO）/ `NoopConcurrencyLimiter`                  |
 | `CircuitBreaker`     | 熔断（连败打开→半开探测）          | `InMemoryCircuitBreaker` / `NoopCircuitBreaker`                                 |
 | `EgressGuard`        | http UDF 出口 allowlist（防 SSRF） | 未配置 = 全拒（fail-closed 安全缺省）                                            |

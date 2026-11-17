@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { describe, expect, test } from "vitest";
 
-import { createUdfRuntime, egressHostMatches, tool, type UdfPackMeta, validatePack } from "./index.ts";
+import { createUdfRuntime, tool, type UdfPackMeta, validatePack } from "./index.ts";
 import { UdfRegistry } from "./register.ts";
 
 describe("声明式出口清单（1.6.0，CONTRACT §6 可选面）", () => {
@@ -27,50 +27,6 @@ describe("声明式出口清单（1.6.0，CONTRACT §6 可选面）", () => {
         tools: [],
       } as never);
       expect(bad.filter((e) => e.includes("meta.egress.allow")).length).toBe(4);
-    });
-  });
-
-  describe("egressHostMatches 匹配语义", () => {
-    test("精确域：host 全等命中，子域不命中", () => {
-      expect(egressHostMatches(["api.example.com"], "https://api.example.com/v1")).toBe(true);
-      expect(egressHostMatches(["api.example.com"], "https://v1.api.example.com")).toBe(false);
-      expect(egressHostMatches(["api.example.com"], "https://evil-api.example.com")).toBe(false);
-    });
-
-    test("通配域：命中子域与孙子域，不命中基域本体", () => {
-      expect(egressHostMatches(["*.api.example.com"], "https://v1.api.example.com")).toBe(true);
-      expect(egressHostMatches(["*.api.example.com"], "https://a.b.api.example.com")).toBe(true);
-      expect(egressHostMatches(["*.api.example.com"], "https://api.example.com")).toBe(false);
-    });
-
-    test("大小写不敏感；非法 URL 一律不命中；空白名单不命中", () => {
-      expect(egressHostMatches(["API.Example.COM"], "https://api.example.com")).toBe(true);
-      expect(egressHostMatches(["api.example.com"], "not a url")).toBe(false);
-      expect(egressHostMatches([], "https://api.example.com")).toBe(false);
-    });
-  });
-
-  describe("registry.udfEgress 查询（交叉校验数据源）", () => {
-    test("有声明 pack → 返回声明域；无声明 pack → undefined", () => {
-      const registry = new UdfRegistry();
-      const meta: UdfPackMeta = { origin: "extension", version: "2.0.0", egress: { allow: ["hooks.slack.com"] } };
-      registry.register({
-        id: "notify",
-        meta,
-        tools: [
-          tool({
-            namespace: "notify",
-            name: "ping",
-            description: "ping webhook",
-            input: Type.Object({}),
-            run: async () => ({ ok: true }),
-          }),
-        ],
-      });
-      expect(registry.udfEgress("ping")).toEqual(["hooks.slack.com"]);
-
-      const bare = createUdfRuntime();
-      expect(bare.udfEgress("nonexistent")).toBeUndefined();
     });
   });
 });

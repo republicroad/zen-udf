@@ -164,18 +164,31 @@ decisionId/journalId/shadow 降格记录）。宿主不得在 meta 塞对抗键�
 
 ## 6. 执行策略边界（机制/策略分界）
 
-超时、并发闸、出网控制（EgressGuard）、secret 解析、重试**不属于本契约**——它们是
-宿主经端口注入的执行策略（RateStore/ConcurrencyLimiter/EgressGuard/SecretResolver，
-ADR-009/执行规范 §6.2-6.4）。语言实现 MUST 提供这些端口的接入点；端口实现可随
-部署后端语言不同。契约只约束：端口触发时错误码语义（§5.4）与 ctx 的字段约定。
+超时、并发闸、熔断、secret 解析、重试**不属于本契约**——它们是宿主经构造项注入的
+执行策略（ConcurrencyLimiter/CircuitBreaker/SecretResolver 等）。契约只约束：策略
+触发时错误码语义（§5.4）与 ctx 的字段约定。
 
-**声明式出口清单（1.6.0，可选面）**：`meta.egress.allow`（域名模式：
-`example.com` 精确 / `*.example.com` 通配，无 scheme/路径，无 `*` 全通）是 pack
-对其网络出口的**声明**（Figma networkAccess / Chrome host_permissions 同族）——
-声明是数据不是强制：策略裁定权仍归 EgressGuard 端口，机制层提供
-`registry.udfEgress(name)` 查询与 `egressHostMatches(allow, url)` 纯匹配器，
-宿主组合根据此做**交叉校验**（声明 ⊆ 租户运行时白名单；guard 可收紧到声明内，
-声明外默认拒绝属宿主策略）。未声明的 pack = 无声明面（现状行为零变化）。
+**端口三判据（5.0.0 立法）**：接口进入 zen-udf 的唯一尺——
+1. **存应用数据 → 宿主去**（业务状态后端不进引擎；RateStore 5.0.0 退役即本判据的执行：
+   频次计数是风控业务语义，且精确/概率计数共用一接口属 1.0 过度设计——未来精确计数 =
+   全新基于 redis 的自定义节点，与概率计数永不共用接口）；
+2. **只是门（I/O 边界最小检查点，不持应用数据）→ 端口随域走**（EgressGuard/SecretResolver
+   5.0.0 迁企业包 ee——消费者 http/notify 在 ee，接口定义随消费者；宿主实现经 ALS 自取
+   meta.tenantId，接口形状零应用概念）；
+3. **脚本执行面 → 保存白名单拒**（functionNode 等内核脚本节点不进租户图——rquickjs
+   沙箱零原生 I/O 且 http_handler 不接线 = 天然防御；白名单于保存入口 422 拒绝）。
+
+**声明式出口清单（1.6.0，pack 元数据契约保留）**：`meta.egress.allow`（域名模式：
+`example.com` 精确 / `*.cdn.example.com` 子域通配，无 scheme/路径/`*` 全通）是 pack
+对其网络出口的**声明**——registry 存储 + 形状校验属 zen-udf（本契约）；enforcement
+（匹配器 + 每请求检查）归域包/宿主实现。deny-by-default 缺省。
+
+**egress 三层治理（宿主生产形态，批次 173）**：层 1 自定义节点出站 = runtime 闸
+（EgressGuard 端口，ee 定义/宿主实现）；层 2 function 节点 = 保存白名单拒绝（内核脚本
+不进租户图——JS 静态分析不可靠，白名单是唯一可靠方案）；层 3 内核兜底 = function v2
+http_handler 不接线（脚本零出站原语）。业界对照：Chrome host_permissions / Figma
+networkAccess / Deno allow-net（声明式 allowlist + deny-by-default 同族）；OWASP SSRF
+加固三件（deny-all ✓ / 解析后 IP 复检与禁重定向 = 层 1 后续加固项）。
 
 ## 7. Conformance 协议
 
@@ -385,7 +398,14 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 
 多语言移植版按目标部署面选档认证；档位明示于实现的兼容性声明中。
 
-## 13. 状态算子契约（Stateful Operators，ADR-021 · 1.7.0）
+## 13. 状态算子契约（Stateful Operators，ADR-021 · 4.0.0/5.0.0 收敛）
+
+> **ADR-021 状态：废弃（5.0.0，宿主裁定）**——RateStore 端口退役（频次计数是风控
+> 业务语义，非引擎机制；**精确计数与概率计数永不共用同一接口**，未来精确计数 = 全新
+> 基于 redis 的自定义节点，verdict velocity 即现役先例）；replay 强制已随 Y3 退役
+> （4.0.0）。本节保留：§13.1 声明字段（temporal/stateful/fidelity = 惰性元数据——
+> 目录徽标/ToolContext 透传，ee haproxy 工具仍在声明）与 §13.4 命名通式（未来
+> redis 节点复用）。
 
 有状态工具（窗口计数/去重等）的时间档位、保真披露、幂等纪律与命名立法。
 规范上位档：ADR-021；消费面立法：verdict-005（trailing 语义/RateStore 实现族/
@@ -395,7 +415,7 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 
 | 字段       | 值域                                          | 缺省              | 语义                                                                                     |
 | ---------- | --------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
-| `temporal` | `event \| processing`                         | `event`           | `event`=事件时间语义（宿主经 meta.eventTime 供给锚点，asOf point-in-time 原生支持）；`processing`=处理时间实现 |
+| `temporal` | `event \| processing`                         | `event`           | `event`=事件时间语义（宿主经 meta.eventTime 约定键供给锚点）；`processing`=处理时间实现 |
 | `stateful` | boolean                                       | `false`           | `true`=非幂等（INCR 形态，同参重试双计）——宿主 HTTP/重试包装器 MUST 执行禁自动重试       |
 | `fidelity` | `exact-per-event \| bucketed \| interpolated` | `exact-per-event` | 保真披露：进 trace 与目录（§13.4）；跨实现等价性判定的 ε 口径依据                        |
 
@@ -409,18 +429,6 @@ zen-udf 实现按三档验收；档位递增累积（B 含 A，C 含 B）：
 > 本节随 Y3 回放机制退役（4.0.0，宿主重设计中）——历史记录保留作回放重设计的
 > 立法参考：processing 时间档工具在回放路径的时间档位强制（strict=RATE_NO_EVENT_TIME
 > fail visible / degraded=处理时间回退 + TEMPORAL_FALLBACK 标注）。
-
-### 13.3 Conformance 分档（rate-store 存储实现许可）
-
-rate-store-conformance 套件按 `mode` 分档；实现按通过档位获部署许可：
-
-| 档                  | 向量                                                                                                                                                | 许可        |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `exact`             | 现套件全向量（含 asOf point-in-time）+ **重试双计向量**：rate INCR 形态同参重试 MUST 双计；groupDistinct 的 pv 双计而 uv 不双计——「非幂等」钉进契约 | live-only   |
-| `approximate`       | exact 向量 − 重试双计 + ε 容差 + 单调性豁免声明                                                                                                     | live-only   |
-| exact + asOf 全通过 | —                                                                                                                                                   | live 全量（point-in-time 复算） |
-
-与 §12 一致性档位正交：§12 认**语言实现**，本节认 **rate-store 存储实现**。
 
 ### 13.4 命名通式与禁用词
 

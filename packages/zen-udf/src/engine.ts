@@ -17,7 +17,6 @@ import type { ConcurrencyLimiter } from "./limiter.ts";
 import { withOtelSpan } from "./otel.ts";
 import type { JsonSchema } from "./register.ts";
 import { globalUdfRegistry, type UdfRegistry, type UdfSemantics } from "./register.ts";
-import { getPorts } from "./runtime-ports.ts";
 
 const CUSTOM_HANDLER_META = "__meta__";
 
