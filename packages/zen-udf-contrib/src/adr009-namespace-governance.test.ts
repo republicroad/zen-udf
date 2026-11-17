@@ -109,16 +109,3 @@ describe("ADR-009 参考域 origin 标记", () => {
     expect(typeof crypto?.meta?.version).toBe("string");
   });
 });
-
-describe("CONTRACT §6 端口注入接线（组合根）", () => {
-  test("createUdfRuntime({ ports }) 经 setPorts 注入，getPorts() 可读（单进程语义）", async () => {
-    const { getPorts } = await import("@republicroad/zen-udf");
-    const egressGuard = {
-      assertAllowed: (url: string) => {
-        if (!url.startsWith("https://")) throw new Error(`egress denied: ${url}`);
-      },
-    };
-    createUdfRuntime({ ports: { egressGuard } });
-    expect(getPorts().egressGuard).toBe(egressGuard);
-  });
-});

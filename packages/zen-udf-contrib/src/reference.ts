@@ -13,9 +13,7 @@ import datetimePack from "./contrib/datetime.ts";
 import debugPack from "./contrib/debug.ts";
 import debuguiPack from "./contrib/debugui.ts";
 import geoPack from "./contrib/geo.ts";
-import httpPack from "./contrib/http.ts";
 import ipLocationPack from "./contrib/ip-location.ts";
-import notifyPack from "./contrib/notify.ts";
 import templatePack from "./contrib/template.ts";
 import validatePack from "./contrib/validate-cn.ts";
 import { globalUdfRegistry, type UdfRegistry } from "@republicroad/zen-udf";
@@ -34,9 +32,7 @@ export const referencePacks: ReferencePack[] = [
   { id: "debug", tools: debugPack.tools },
   { id: "debugui", tools: debuguiPack.tools },
   { id: "geo", tools: geoPack.tools },
-  { id: "http", tools: httpPack.tools },
   { id: "ip-location", tools: ipLocationPack.tools },
-  { id: "notify", tools: notifyPack.tools },
   { id: "template", tools: templatePack.tools },
   { id: "validate", tools: validatePack.tools },
 ];
@@ -45,7 +41,7 @@ export const referencePacks: ReferencePack[] = [
  * 参考域元数据（ADR-009）：origin=reference；version 随 zen-udf 发版同步更新
  * （与 package.json 一致，目录据此做过期提示）。
  */
-export const REFERENCE_PACK_META = { origin: "reference" as const, version: "2.0.0" };
+export const REFERENCE_PACK_META = { origin: "reference" as const, version: "3.0.0" };
 
 /** 将参考函数域注册到任意注册表（实例隔离场景用；global 的注册由 import 副作用完成） */
 export const loadReferenceInto = (registry: UdfRegistry): void => {
