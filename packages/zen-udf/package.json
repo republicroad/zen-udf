@@ -1,7 +1,7 @@
 {
   "name": "@republicroad/zen-udf",
   "license": "MIT",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "zen-engine custom-node UDF runtime core: multi-function execution spec, UdfPack registry, L1 decision cache, pure data-plane context & partition port",
   "type": "module",
   "main": "src/index.ts",

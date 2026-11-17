@@ -20,12 +20,18 @@ import { globalUdfRegistry, type UdfRegistry, type UdfSemantics } from "./regist
 
 const CUSTOM_HANDLER_META = "__meta__";
 
-/** UDF 函数粒度执行轨迹（执行规范 §6.6）：经 customHandler 的 traceData 下发 */
+/** UDF 函数粒度执行轨迹（执行规范 §6.6）：经 customHandler 的 traceData 下发；
+ * 5.1.0 起同时经 traceSink 事实流逐条回调（回放 v2 材料，ADR：verdict-016） */
 export interface UdfTrace {
   /** 表达式实例 key（customNode 输出字段） */
   key: string;
   name: string;
   micros: number;
+  /** 节点 id（5.1.0 补齐——回放 cursor 定位维 nodeId:exprKey:occurrence） */
+  nodeId?: string;
+  /** 入参求值结果快照（5.1.0 补齐——kwargs 求值/绑定后的最终业务入参，不含
+   * context/func_id/_node_input_ 注入键；bind 失败时为已求值部分） */
+  args?: unknown;
   /** 违例/异常码：INVALID_PARAM / UDF_TIMEOUT / INVALID_RESULT / UDF_NOT_FOUND / UDF_ERROR / CIRCUIT_OPEN */
   code?: string;
   issues?: string[];
@@ -89,14 +95,24 @@ export interface DecisionRuntimeOptions extends Omit<ZenEngineOptions, "customHa
   sanitizer?: (message: string) => string;
   /** OpenTelemetry 桥（Y6）：置 true 且宿主安装 @opentelemetry/api 时，evaluate 产生根 span（UdfTrace 作为事件） */
   otel?: boolean;
-  /** 统一观测 sink（BB5）：UDF/熔断/并发闸事件流；缺省 undefined = 不出观测事件 */
+  /** 统一观测 sink（BB5）：UDF/熔断/并发闸事件流；缺省 undefined = 不出观测事件。
+   * 聚合信号契约——可采样、可丢弃、按 kind 聚合；保真事实流勿挂此处（见 traceSink） */
   metrics?: (event: MetricsEvent) => void;
+  /**
+   * UDF 事实流 sink（5.1.0 additive，回放 v2 材料——ADR：verdict-016）：每 UDF 调用
+   * 一条保真记录（含 args/outcome/nodeId），与 metrics 分立——metrics 的合法聚合/采样
+   * 优化不得静默丢失日志材料（OTel 三信号分离同构）。发射点 = handleCustomNode 汇总处
+   * （拓扑序，§11 调度器单源——回放依赖稳定序）；不受 evaluate trace 开关卡控。
+   * 缺省 undefined = 零开销零行为（与 5.0.0 一致）。关联键（request_id/model_id 等）
+   * 由宿主 sink 实现内经 ALS（ExecContext.meta）自取——机制层只给事实不管关联。
+   */
+  traceSink?: (trace: UdfTrace) => void;
 }
 
-/** 单个 UDF 的观测记录（Y2 审计事件 observed 数组项） */
 /**
  * 统一观测事件（BB5）：metrics sink 按 kind 聚合——
  * udf（每次 UDF 调用）/ circuit（熔断拒绝）/ limiter（并发闸等待）。
+ * 聚合信号契约（可采样/可丢弃）；保真事实流走 traceSink（5.1.0 分立）。
  * verdict 侧聚合成 Prometheus 指标（如 zen_udf_udf_errors_total）。
  */
 export type MetricsEvent =
@@ -174,6 +190,8 @@ class DecisionRuntime {
   otel: boolean;
   /** 统一观测 sink（缺省 undefined = 不出观测事件） */
   metrics?: (event: MetricsEvent) => void;
+  /** UDF 事实流 sink（5.1.0，缺省 undefined = 零行为）；契约见 DecisionRuntimeOptions.traceSink */
+  traceSink?: (trace: UdfTrace) => void;
 
   constructor(options: DecisionRuntimeOptions = {}) {
     this.registry = options.registry ?? globalUdfRegistry;
@@ -190,6 +208,7 @@ class DecisionRuntime {
     this.sanitizer = options.sanitizer ?? sanitizeErrorDefault;
     this.otel = options.otel ?? false;
     this.metrics = options.metrics;
+    this.traceSink = options.traceSink;
     // L7（ADR-008）：宿主 customHandler 与内置 UDF 分发可组合——宿主 handler
     // 返回 undefined（not-handled 语义）时回落内置分发器（decline 语义）；
     // 内置分发器同时以 runtime.handleCustomNode 公开（显式委托形态，二选一或组合均可）。
@@ -704,6 +723,9 @@ class DecisionRuntime {
             code: t.code,
             idempotent: t.idempotent,
           });
+          // 事实流（5.1.0）：每调用一条保真记录，与 metrics 分立（契约见 traceSink 选项注）；
+          // nodeId 发射点集中盖戳（覆盖全部 push 点，traceData 形状不变）
+          this.traceSink?.({ ...t, nodeId: node.id });
         }
       }
       return traces.length > 0 ? { output: results, traceData: { udf: traces } } : { output: results };
@@ -806,6 +828,7 @@ class DecisionRuntime {
               name: funcName,
               micros: 0,
               code: "INVALID_PARAM",
+              args: evaluated, // bind 失败：给已求值部分（定位坏参数）
               semantics,
               outcome: invalidParamOutcome,
             });
@@ -831,6 +854,7 @@ class DecisionRuntime {
               name: funcName,
               micros: 0,
               code: "INVALID_PARAM",
+              args, // 位置形态：已求值实参数组
               issues: paramIssues,
               semantics,
               outcome: invalidParamOutcome,
@@ -861,6 +885,7 @@ class DecisionRuntime {
             name: funcName,
             micros: 0,
             code: "CIRCUIT_OPEN",
+            args: operatorKwargs,
             semantics,
             outcome: openOutcome,
           });
@@ -919,6 +944,7 @@ class DecisionRuntime {
               name: funcName,
               micros: 0,
               code: "UDF_TIMEOUT",
+              args: operatorKwargs,
               semantics,
               outcome: timeoutOutcome,
             });
@@ -942,6 +968,7 @@ class DecisionRuntime {
               name: funcName,
               micros,
               code: "INVALID_RESULT",
+              args: operatorKwargs,
               issues: resultIssues,
               semantics,
               outcome: result,
@@ -953,7 +980,16 @@ class DecisionRuntime {
           }
         }
 
-        traces.push({ key: execExpr.key, name: funcName, micros, semantics, idempotent, fidelity, outcome: result });
+        traces.push({
+          key: execExpr.key,
+          name: funcName,
+          micros,
+          args: operatorKwargs,
+          semantics,
+          idempotent,
+          fidelity,
+          outcome: result,
+        });
         return result;
       } else {
         if (funcName) {

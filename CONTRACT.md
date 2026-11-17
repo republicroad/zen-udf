@@ -162,6 +162,19 @@ meta（需 ADR——3.0.0 tenantId/userId/requestId/tenantExempt、4.0.0 eventTi
 decisionId/journalId/shadow 降格记录）。宿主不得在 meta 塞对抗键篡改引擎行为——引擎
 控制面读取只认 typed 字段，meta 永不参与引擎判定（当前 typed 面为空，该性质平凡成立）。
 
+### 5.6 观测面：metrics 与 traceSink 分立（5.1.0 additive）
+
+两条输出面分立，**不得混装**（OTel 三信号分离同构）：
+
+| 面 | 选项 | 契约 | 消费纪律 |
+| --- | --- | --- | --- |
+| metrics | `metrics`（BB5） | 聚合信号：`udf`（name/partition/micros/code/idempotent）/ `circuit` / `limiter` 事件，每调用一条但**内容可省略** | 宿主可采样、可丢弃、按 kind 聚合——metrics 的合法优化不得影响事实流 |
+| 事实流 | `traceSink`（5.1.0） | 每调用一条**保真记录**：UdfTrace 全字段（含 `args` 入参求值快照、`nodeId`、`outcome` 返回值） | 宿主落盘为回放/排障材料；发射序 = 拓扑序（§11.5 调度器单源）；不受 evaluate trace 开关卡控 |
+
+- `traceSink` 缺省 undefined = 零开销零行为；`nodeId` 由发射点集中盖戳（traceData 形状不变）；
+- 关联键（request_id/model_id 等）由宿主 sink 实现内经 ALS（ExecContext.meta）自取——机制层只给事实不管关联；
+- 立法动机：metrics 混入 payload 会让聚合优化静默丢失日志材料；事实流混入 metrics 会让 stdout/告警面收到大 payload。
+
 ## 6. 执行策略边界（机制/策略分界）
 
 超时、并发闸、熔断、secret 解析、重试**不属于本契约**——它们是宿主经构造项注入的
@@ -218,6 +231,7 @@ networkAccess / Deno allow-net（声明式 allowlist + deny-by-default 同族）
 ## 8. 版本与演进
 
 - 契约版本独立语义化：**破坏性变更升 major， additive 升 minor**；
+- **5.1.0（additive，2026-11-17）**：`traceSink` 事实流选项（§5.6）+ UdfTrace 增 `args`/`nodeId` 可选字段（FORWARD 义务：消费方容忍未知键）——metrics 面零改动；回放 v2 材料（宿主 ADR：verdict-016）承接「按 additive 回归（需 ADR）」条款；
 - zen-udf 1.0 冻结条件：本契约 major=1 + 端口面（§6）冻结——此后声明字段与错误码
   只进不退；
 - 语料与 fixtures 随上游（gorules/zen）基线滚动更新；实现升级 MUST 先过全量
@@ -385,7 +399,7 @@ kwargs 值 / `$positional` 元素可为信封对象——**模式显式化的 op
   前驱输出（输出遮蔽同名输入，对齐表达式节点行内求值），`$.dep` 引用在
   执行前替换为裸键（仅对已完成依赖键、词边界精确）；
 - **零边快路径**：无依赖边 = 单层全并行（原 `Promise.all` 直通，零开销）；
-- **调度器单源**：执行与未来回放重设计共用同一调度序（拓扑序防垫回错位）。
+- **调度器单源**：执行与未来回放重设计共用同一调度序（拓扑序防垫回错位）——traceSink 事实流发射点位于该汇总处，回放 cursor 依赖此稳定序（5.1.0）。
 
 ## 12. 一致性档位（Conformance Profiles，1.0 验收基准）
 
